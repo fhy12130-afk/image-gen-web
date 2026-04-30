@@ -1,0 +1,22 @@
+services:
+  image-gen-web:
+    build:
+      context: .
+      args:
+        NODE_IMAGE: ${DOCKER_NODE_IMAGE:-node:20-bookworm-slim}
+    env_file:
+      - .env
+    environment:
+      API_PORT: "8787"
+      WEB_ORIGIN: "http://localhost:5173"
+      IMAGE_GEN_API_URL: "http://localhost:8787"
+    ports:
+      - "5173:5173"
+      - "8787:8787"
+    volumes:
+      - api-data:/app/apps/api/data
+    restart: unless-stopped
+
+volumes:
+  api-data:
+    name: image-gen-web_api-data

@@ -1,0 +1,17 @@
+node_modules/
+**/node_modules/
+
+dist/
+**/dist/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.local
+*.log
+
+apps/api/data/
+apps/api/logs/
+
+# Local duplicate/working copy, not part of this repository.
+image-gen-web/

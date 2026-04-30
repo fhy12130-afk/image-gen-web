@@ -1,0 +1,11 @@
+.env
+node_modules
+**/node_modules
+dist
+**/dist
+**/*.tsbuildinfo
+apps/api/data
+apps/api/logs
+image-gen-web
+.git
+.gitignore

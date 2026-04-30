@@ -1,0 +1,21 @@
+{
+  "name": "image-gen-web",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "pnpm --filter @image-gen-web/shared build && pnpm --parallel --filter @image-gen-web/api --filter @image-gen-web/web dev",
+    "dev:npx": "npx pnpm@9.15.4 --filter @image-gen-web/shared build && npx pnpm@9.15.4 --parallel --filter @image-gen-web/api --filter @image-gen-web/web dev",
+    "mcp:dev": "pnpm --filter @image-gen-web/shared build && pnpm --filter @image-gen-web/mcp dev",
+    "mcp:start": "pnpm --filter @image-gen-web/mcp start",
+    "build": "pnpm -r build",
+    "test": "pnpm --filter @image-gen-web/shared build && pnpm -r test",
+    "typecheck": "pnpm --filter @image-gen-web/shared build && pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^2.1.0"
+  }
+}
