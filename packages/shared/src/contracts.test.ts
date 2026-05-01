@@ -9,6 +9,8 @@ import {
   imageJobsResponseSchema,
   imageHistoryRecordSchema,
   imageResponseSchema,
+  apiSettingsResponseSchema,
+  apiSettingsUpdateSchema,
   publicConfigSchema
 } from './contracts';
 
@@ -132,6 +134,30 @@ describe('publicConfigSchema', () => {
         supportsImageEdit: true
       })
     ).toThrow();
+  });
+});
+
+describe('apiSettingsSchema', () => {
+  it('accepts runtime settings responses without exposing the full API key', () => {
+    const parsed = apiSettingsResponseSchema.parse({
+      baseUrl: 'https://api.example.com/v1',
+      defaultModel: 'gpt-image-2',
+      maxParallelImageJobs: 4,
+      hasApiKey: true,
+      apiKeyPreview: 'sk-abc...xyz'
+    });
+
+    expect(parsed.hasApiKey).toBe(true);
+  });
+
+  it('accepts partial runtime settings updates', () => {
+    const parsed = apiSettingsUpdateSchema.parse({
+      baseUrl: 'https://api.example.com/v1/images/generations',
+      apiKey: 'secret',
+      maxParallelImageJobs: 6
+    });
+
+    expect(parsed.maxParallelImageJobs).toBe(6);
   });
 });
 

@@ -350,6 +350,76 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/jobs/job_1/cancel', expect.objectContaining({ method: 'POST' }));
     expect(await screen.findByText(/Canceled at/i)).toBeInTheDocument();
   });
+
+  it('saves runtime settings from the settings panel', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/config/public') {
+        return new Response(
+          JSON.stringify({
+            defaultModel: 'gpt-image-2',
+            defaultSize: 'auto',
+            sizes: ['auto', '1024x1024'],
+            defaultQuality: 'medium',
+            qualities: ['low', 'medium', 'high'],
+            maxParallelImageJobs: 2,
+            supportsImageEdit: true
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (String(input) === '/api/settings' && init?.method === 'PUT') {
+        return new Response(
+          JSON.stringify({
+            baseUrl: 'https://api.example.com/v1',
+            defaultModel: 'gpt-image-2',
+            maxParallelImageJobs: 5,
+            hasApiKey: true,
+            apiKeyPreview: 'sk-tes...ret'
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (String(input) === '/api/settings') {
+        return new Response(
+          JSON.stringify({
+            baseUrl: '',
+            defaultModel: 'gpt-image-2',
+            maxParallelImageJobs: 2,
+            hasApiKey: false
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (String(input) === '/api/history') {
+        return new Response(JSON.stringify({ records: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      return new Response(JSON.stringify({ jobs: [], maxParallel: 2, runningCount: 0, queuedCount: 0 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    await screen.findByDisplayValue('gpt-image-2');
+
+    await userEvent.click(screen.getByRole('button', { name: /Settings/i }));
+    await userEvent.type(screen.getByLabelText(/Endpoint URL/i), 'https://api.example.com/v1/images/generations');
+    await userEvent.type(screen.getByLabelText(/API key/i), 'sk-test-secret');
+    await userEvent.clear(screen.getByLabelText(/Parallel jobs/i));
+    await userEvent.type(screen.getByLabelText(/Parallel jobs/i), '5');
+    await userEvent.click(screen.getByRole('button', { name: /Save settings/i }));
+
+    const updateCall = fetchMock.mock.calls.find(([input, init]) => String(input) === '/api/settings' && init?.method === 'PUT');
+    expect(updateCall?.[1]?.body).toContain('https://api.example.com/v1/images/generations');
+    expect(updateCall?.[1]?.body).toContain('sk-test-secret');
+    expect(updateCall?.[1]?.body).toContain('"maxParallelImageJobs":5');
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+  });
 });
 
 function succeededJob(prompt: string) {

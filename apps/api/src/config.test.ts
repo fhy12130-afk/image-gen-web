@@ -79,4 +79,13 @@ describe('loadConfigFromEnvFile', () => {
     expect(config.imageApiMaxRetries).toBe(4);
     expect(config.imageApiRetryDelayMs).toBe(12000);
   });
+
+  it('allows provider settings to be configured after startup', () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'image-gen-web-empty-'));
+    const config = loadConfigFromEnvFile(tempDir, {});
+
+    expect(config.baseUrl).toBe('');
+    expect(config.apiKey).toBe('');
+    expect(config.defaultModel).toBe('gptimage2');
+  });
 });

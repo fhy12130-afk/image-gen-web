@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ImageHistoryRecord, ImageJobRecord, ImageQuality, PublicConfig } from '@image-gen-web/shared';
+import type { ApiSettingsResponse, ImageHistoryRecord, ImageJobRecord, ImageQuality, PublicConfig } from '@image-gen-web/shared';
 import {
   cancelImageJob,
   clearFinishedJobs,
@@ -7,9 +7,11 @@ import {
   fetchJobs,
   fetchHistory,
   fetchPublicConfig,
+  fetchSettings,
   queueImageEdit,
   queueImageGeneration,
-  retryImageJob
+  retryImageJob,
+  updateSettings
 } from './api';
 import { compressImageFile, formatBytes, type ImageCompressionRecord } from './imageCompression';
 
@@ -36,6 +38,15 @@ export default function App() {
   const [images, setImages] = useState<ImageCompressionRecord[]>([]);
   const [jobs, setJobs] = useState<ImageJobRecord[]>([]);
   const [historyRecords, setHistoryRecords] = useState<ImageHistoryRecord[]>([]);
+  const [settingsForm, setSettingsForm] = useState({
+    baseUrl: '',
+    apiKey: '',
+    maxParallelImageJobs: String(fallbackConfig.maxParallelImageJobs)
+  });
+  const [settingsStatus, setSettingsStatus] = useState<ApiSettingsResponse | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [isQueuing, setIsQueuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +68,7 @@ export default function App() {
 
     void loadHistory();
     void loadJobs();
+    void loadSettings();
     const intervalId = window.setInterval(() => {
       void loadJobs();
     }, 2000);
@@ -71,6 +83,28 @@ export default function App() {
     } catch {
       setHistoryRecords([]);
     }
+  }
+
+  async function loadSettings() {
+    try {
+      applySettings(await fetchSettings());
+    } catch {
+      // Settings are optional for older API servers; generation errors still surface normally.
+    }
+  }
+
+  function applySettings(settings: ApiSettingsResponse) {
+    setSettingsStatus(settings);
+    setSettingsForm({
+      baseUrl: settings.baseUrl,
+      apiKey: '',
+      maxParallelImageJobs: String(settings.maxParallelImageJobs)
+    });
+    setConfig((currentConfig) => ({
+      ...currentConfig,
+      defaultModel: settings.defaultModel,
+      maxParallelImageJobs: settings.maxParallelImageJobs
+    }));
   }
 
   async function loadJobs() {
@@ -114,14 +148,45 @@ export default function App() {
     }
   }
 
-  async function handleClearHistory() {
+  async function handleClearHistory(): Promise<boolean> {
     setError(null);
     try {
       const [historyResponse, jobsResponse] = await Promise.all([clearImageHistory(), clearFinishedJobs()]);
       setHistoryRecords(historyResponse.records);
       setJobs(jobsResponse.jobs);
+      return true;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to clear history.');
+      return false;
+    }
+  }
+
+  async function handleSaveSettings(event: React.FormEvent) {
+    event.preventDefault();
+    setSettingsMessage(null);
+    setError(null);
+    setIsSavingSettings(true);
+    try {
+      const payload = {
+        baseUrl: settingsForm.baseUrl,
+        ...(settingsForm.apiKey.trim() ? { apiKey: settingsForm.apiKey.trim() } : {}),
+        maxParallelImageJobs: Number(settingsForm.maxParallelImageJobs)
+      };
+      const nextSettings = await updateSettings(payload);
+      applySettings(nextSettings);
+      setModel(nextSettings.defaultModel);
+      setSettingsMessage('Settings saved.');
+    } catch (requestError) {
+      setSettingsMessage(requestError instanceof Error ? requestError.message : 'Unable to save settings.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }
+
+  async function handleSettingsClearHistory() {
+    setSettingsMessage(null);
+    if (await handleClearHistory()) {
+      setSettingsMessage('History cleared.');
     }
   }
 
@@ -188,6 +253,12 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      <div className="top-actions">
+        <button type="button" className="settings-button" onClick={() => setIsSettingsOpen(true)}>
+          Settings
+        </button>
+      </div>
+
       <section className="hero-panel">
         <p className="eyebrow">Image Gen Web</p>
         <h1>Generate images through your own model endpoint</h1>
@@ -195,6 +266,55 @@ export default function App() {
           Keep provider keys on the server, choose size and quality, upload reference images, and reuse saved history.
         </p>
       </section>
+
+      {isSettingsOpen ? (
+        <section className="settings-panel" aria-label="Settings">
+          <div className="settings-header">
+            <h2>Settings</h2>
+            <button type="button" className="text-button" onClick={() => setIsSettingsOpen(false)}>
+              Close
+            </button>
+          </div>
+          <form className="settings-form" onSubmit={handleSaveSettings}>
+            <label>
+              Endpoint URL
+              <input
+                value={settingsForm.baseUrl}
+                onChange={(event) => setSettingsForm((current) => ({ ...current, baseUrl: event.target.value }))}
+                placeholder="https://your-image-api.example.com/v1"
+              />
+            </label>
+            <label>
+              API key
+              <input
+                type="password"
+                value={settingsForm.apiKey}
+                onChange={(event) => setSettingsForm((current) => ({ ...current, apiKey: event.target.value }))}
+                placeholder={settingsStatus?.hasApiKey ? `Saved ${settingsStatus.apiKeyPreview || ''}` : 'sk-...'}
+              />
+            </label>
+            <label>
+              Parallel jobs
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={settingsForm.maxParallelImageJobs}
+                onChange={(event) => setSettingsForm((current) => ({ ...current, maxParallelImageJobs: event.target.value }))}
+              />
+            </label>
+            <div className="settings-actions">
+              <button className="submit-button" type="submit" disabled={isSavingSettings}>
+                {isSavingSettings ? 'Saving...' : 'Save settings'}
+              </button>
+              <button className="text-button" type="button" onClick={() => void handleSettingsClearHistory()}>
+                Clear history
+              </button>
+            </div>
+            {settingsMessage ? <p className="settings-message">{settingsMessage}</p> : null}
+          </form>
+        </section>
+      ) : null}
 
       <section className="workspace">
         <form className="control-card" onSubmit={handleSubmit}>

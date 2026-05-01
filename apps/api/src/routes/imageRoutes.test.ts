@@ -86,6 +86,84 @@ describe('API routes', () => {
     ]);
   });
 
+  it('updates runtime settings and does not expose the full API key', async () => {
+    let savedSettings: unknown;
+    const app = buildApp({
+      config: {
+        apiPort: 8787,
+        baseUrl: '',
+        apiKey: '',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 2
+      },
+      provider: {
+        generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub(),
+      settingsStore: {
+        async loadSettings() {
+          return {};
+        },
+        async saveSettings(settings) {
+          savedSettings = settings;
+        }
+      }
+    });
+
+    const updated = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      payload: {
+        baseUrl: 'https://api.example.com/v1/images/generations',
+        apiKey: 'sk-test-secret',
+        maxParallelImageJobs: 4
+      }
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      baseUrl: 'https://api.example.com/v1',
+      hasApiKey: true,
+      maxParallelImageJobs: 4
+    });
+    expect(JSON.stringify(updated.json())).not.toContain('sk-test-secret');
+    expect(savedSettings).toMatchObject({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test-secret', maxParallelImageJobs: 4 });
+
+    const jobs = await app.inject({ method: 'GET', url: '/api/jobs' });
+    expect(jobs.json().maxParallel).toBe(4);
+  });
+
+  it('returns a clear error when provider settings are missing', async () => {
+    const app = buildApp({
+      config: {
+        apiPort: 8787,
+        baseUrl: '',
+        apiKey: '',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 2
+      },
+      provider: {
+        generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub()
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/jobs/image/generate',
+      payload: { prompt: 'a queued fox', model: 'gptimage2', size: '1024x1024', quality: 'high', n: 1 }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('CONFIG_MISSING');
+  });
+
   it('generates images through provider', async () => {
     let receivedRequest: unknown;
     const app = buildApp({

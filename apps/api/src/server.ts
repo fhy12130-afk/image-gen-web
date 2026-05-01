@@ -4,11 +4,15 @@ import { buildApp } from './app';
 import { loadConfigFromEnvFile } from './config';
 import { createHistoryStore } from './historyStore';
 import { editOpenAIImage, generateOpenAIImage } from './provider/openaiImageProvider';
+import { applyStoredSettings, createSettingsStore } from './settingsStore';
 
 const config = loadConfigFromEnvFile();
 const apiDir = dirname(fileURLToPath(import.meta.url));
+const dataDir = join(apiDir, '..', 'data');
+const settingsStore = createSettingsStore(join(dataDir, 'settings.json'));
+applyStoredSettings(config, await settingsStore.loadSettings());
 const historyStore = createHistoryStore({
-  dataDir: join(apiDir, '..', 'data'),
+  dataDir,
   publicBaseUrl: `http://localhost:${config.apiPort}`
 });
 const app = buildApp({
@@ -38,7 +42,8 @@ const app = buildApp({
         image
       )
   },
-  historyStore
+  historyStore,
+  settingsStore
 });
 
 await app.listen({ port: config.apiPort, host: '0.0.0.0' });

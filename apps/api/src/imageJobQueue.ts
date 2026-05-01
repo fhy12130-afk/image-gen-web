@@ -25,7 +25,7 @@ export type ImageJobQueue = ReturnType<typeof createImageJobQueue>;
 export function createImageJobQueue(options: QueueOptions) {
   const jobs: InternalImageJob[] = [];
   let runningCount = 0;
-  const maxParallel = Math.max(1, options.maxParallel);
+  let maxParallel = Math.max(1, options.maxParallel);
 
   function snapshot(job: InternalImageJob): ImageJobRecord {
     const { run: _run, ...record } = job;
@@ -82,6 +82,11 @@ export function createImageJobQueue(options: QueueOptions) {
       runningCount,
       queuedCount: jobs.filter((job) => job.status === 'queued').length
     };
+  }
+
+  function setMaxParallel(nextMaxParallel: number): void {
+    maxParallel = Math.max(1, nextMaxParallel);
+    pump();
   }
 
   function enqueueGenerate(request: ImageGenerationRequest): ImageJobRecord {
@@ -225,6 +230,7 @@ export function createImageJobQueue(options: QueueOptions) {
     getJob,
     listJobs,
     clearFinished,
+    setMaxParallel,
     stats
   };
 }

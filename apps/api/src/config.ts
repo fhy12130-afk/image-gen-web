@@ -13,22 +13,18 @@ export type ApiConfig = {
   maxParallelImageJobs: number;
 };
 
-function normalizeBaseUrl(url: string): string {
+export function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, '').replace(/\/images\/(generations|edits)$/i, '');
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
-  const baseUrl = env.IMAGE_API_BASE_URL;
-  const apiKey = env.IMAGE_API_KEY;
+  const baseUrl = env.IMAGE_API_BASE_URL || '';
+  const apiKey = env.IMAGE_API_KEY || '';
   const defaultModel = env.DEFAULT_IMAGE_MODEL || 'gptimage2';
-
-  if (!baseUrl || !apiKey) {
-    throw new Error('IMAGE_API_BASE_URL and IMAGE_API_KEY are required');
-  }
 
   return {
     apiPort: Number(env.API_PORT || 8787),
-    baseUrl: normalizeBaseUrl(baseUrl),
+    baseUrl: baseUrl ? normalizeBaseUrl(baseUrl) : '',
     apiKey,
     defaultModel,
     webOrigin: env.WEB_ORIGIN || 'http://localhost:5173',

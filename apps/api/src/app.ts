@@ -7,8 +7,10 @@ import {
   DEFAULT_IMAGE_SIZE,
   IMAGE_QUALITY_OPTIONS,
   IMAGE_SIZE_OPTIONS,
+  apiSettingsUpdateSchema,
   imageEditFieldsSchema,
   imageGenerationRequestSchema,
+  type ApiSettingsResponse,
   type GeneratedImage,
   type ImageEditFields,
   type ImageGenerationRequest
@@ -18,6 +20,7 @@ import { createRequestId, logDiagnostic, maskForLog, summarizeImages } from './d
 import { apiError } from './errors';
 import type { HistoryStore } from './historyStore';
 import { createImageJobQueue } from './imageJobQueue';
+import { applySettingsUpdate, toStoredSettings, type SettingsStore } from './settingsStore';
 
 export type UploadedImage = { buffer: Buffer; filename: string; mimetype: string };
 
@@ -26,7 +29,7 @@ export type ImageProvider = {
   edit: (fields: ImageEditFields, images: UploadedImage[]) => Promise<GeneratedImage[]>;
 };
 
-export function buildApp(options: { config: ApiConfig; provider: ImageProvider; historyStore?: HistoryStore }) {
+export function buildApp(options: { config: ApiConfig; provider: ImageProvider; historyStore?: HistoryStore; settingsStore?: SettingsStore }) {
   const app = Fastify({ logger: false });
   const jobQueue = createImageJobQueue({
     maxParallel: options.config.maxParallelImageJobs,
@@ -55,6 +58,21 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
     maxParallelImageJobs: options.config.maxParallelImageJobs,
     supportsImageEdit: true
   }));
+
+  app.get('/api/settings', async () => settingsResponse(options.config));
+
+  app.put('/api/settings', async (request, reply) => {
+    const parsed = apiSettingsUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send(apiError('VALIDATION_ERROR', 'Invalid settings update.', parsed.error.message));
+    }
+
+    applySettingsUpdate(options.config, parsed.data);
+    jobQueue.setMaxParallel(options.config.maxParallelImageJobs);
+    await options.settingsStore?.saveSettings(toStoredSettings(options.config));
+
+    return settingsResponse(options.config);
+  });
 
   app.get('/api/image/download', async (request, reply) => {
     const rawUrl = (request.query as { url?: string }).url;
@@ -160,6 +178,10 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
   });
 
   app.post('/api/jobs/image/generate', async (request, reply) => {
+    if (!isProviderConfigured(options.config)) {
+      return reply.status(400).send(apiError('CONFIG_MISSING', 'Image provider URL and API key are required.'));
+    }
+
     const parsed = imageGenerationRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply
@@ -171,6 +193,10 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
   });
 
   app.post('/api/jobs/image/edit', async (request, reply) => {
+    if (!isProviderConfigured(options.config)) {
+      return reply.status(400).send(apiError('CONFIG_MISSING', 'Image provider URL and API key are required.'));
+    }
+
     const parts = request.parts();
     const fields: Record<string, string> = {};
     const images: UploadedImage[] = [];
@@ -204,6 +230,10 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
   app.post('/api/image/generate', async (request, reply) => {
     const requestId = createRequestId('generate');
     reply.header('x-request-id', requestId);
+    if (!isProviderConfigured(options.config)) {
+      return reply.status(400).send(apiError('CONFIG_MISSING', 'Image provider URL and API key are required.'));
+    }
+
     const parsed = imageGenerationRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply
@@ -236,6 +266,10 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
   app.post('/api/image/edit', async (request, reply) => {
     const requestId = createRequestId('edit');
     reply.header('x-request-id', requestId);
+    if (!isProviderConfigured(options.config)) {
+      return reply.status(400).send(apiError('CONFIG_MISSING', 'Image provider URL and API key are required.'));
+    }
+
     const parts = request.parts();
     const fields: Record<string, string> = {};
     const images: UploadedImage[] = [];
@@ -288,4 +322,18 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
   });
 
   return app;
+}
+
+function isProviderConfigured(config: ApiConfig): boolean {
+  return Boolean(config.baseUrl && config.apiKey);
+}
+
+function settingsResponse(config: ApiConfig): ApiSettingsResponse {
+  return {
+    baseUrl: config.baseUrl,
+    defaultModel: config.defaultModel,
+    maxParallelImageJobs: config.maxParallelImageJobs,
+    hasApiKey: Boolean(config.apiKey),
+    ...(config.apiKey ? { apiKeyPreview: maskForLog(config.apiKey) } : {})
+  };
 }

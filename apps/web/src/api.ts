@@ -5,6 +5,8 @@ import type {
   ImageJobsResponse,
   ImageQuality,
   ImageResponse,
+  ApiSettingsResponse,
+  ApiSettingsUpdate,
   PublicConfig
 } from '@image-gen-web/shared';
 
@@ -60,6 +62,20 @@ function extractNestedErrorMessage(details: string): string | null {
 
 export async function fetchPublicConfig(): Promise<PublicConfig> {
   return parseResponse<PublicConfig>(await fetch('/api/config/public'));
+}
+
+export async function fetchSettings(): Promise<ApiSettingsResponse> {
+  return parseResponse<ApiSettingsResponse>(await fetch('/api/settings'));
+}
+
+export async function updateSettings(settings: ApiSettingsUpdate): Promise<ApiSettingsResponse> {
+  return parseResponse<ApiSettingsResponse>(
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    })
+  );
 }
 
 export async function generateImage(request: ImageGenerationRequest): Promise<ImageResponse> {

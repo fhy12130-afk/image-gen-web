@@ -154,6 +154,21 @@ export const publicConfigSchema = z.object({
   supportsImageEdit: z.boolean()
 });
 
+export const apiSettingsResponseSchema = z.object({
+  baseUrl: z.string(),
+  defaultModel: z.string().min(1),
+  maxParallelImageJobs: z.number().int().positive(),
+  hasApiKey: z.boolean(),
+  apiKeyPreview: z.string().optional()
+});
+
+export const apiSettingsUpdateSchema = z.object({
+  baseUrl: z.string().trim().optional(),
+  apiKey: z.string().optional(),
+  defaultModel: z.string().trim().min(1).optional(),
+  maxParallelImageJobs: z.number().int().min(1).max(20).optional()
+});
+
 export const apiErrorCodeSchema = z.enum([
   'CONFIG_MISSING',
   'VALIDATION_ERROR',
@@ -183,5 +198,7 @@ export type ImageJobResponse = z.infer<typeof imageJobResponseSchema>;
 export type ImageJobsResponse = z.infer<typeof imageJobsResponseSchema>;
 export type ImageResponse = z.infer<typeof imageResponseSchema>;
 export type PublicConfig = z.infer<typeof publicConfigSchema>;
+export type ApiSettingsResponse = z.infer<typeof apiSettingsResponseSchema>;
+export type ApiSettingsUpdate = z.infer<typeof apiSettingsUpdateSchema>;
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
