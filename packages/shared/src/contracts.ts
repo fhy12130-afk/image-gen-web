@@ -107,7 +107,7 @@ export const imageHistoryResponseSchema = z.object({
   records: z.array(imageHistoryRecordSchema)
 });
 
-export const imageJobStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed']);
+export const imageJobStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'canceled']);
 
 export const imageJobRecordSchema = z.object({
   id: z.string().min(1),

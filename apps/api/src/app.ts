@@ -149,6 +149,16 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
     return reply.status(202).send({ job });
   });
 
+  app.post('/api/jobs/:jobId/cancel', async (request, reply) => {
+    const { jobId } = request.params as { jobId: string };
+    const job = jobQueue.cancelJob(jobId);
+    if (!job) {
+      return reply.status(400).send(apiError('VALIDATION_ERROR', 'Only queued image jobs can be canceled.'));
+    }
+
+    return reply.status(200).send({ job });
+  });
+
   app.post('/api/jobs/image/generate', async (request, reply) => {
     const parsed = imageGenerationRequestSchema.safeParse(request.body);
     if (!parsed.success) {

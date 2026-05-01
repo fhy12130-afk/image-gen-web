@@ -313,6 +313,43 @@ describe('App', () => {
 
     expect(await screen.findByRole('link', { name: /Download/i })).toBeInTheDocument();
   });
+
+  it('cancels queued image jobs', async () => {
+    const queued = queuedJob('queued fox');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/config/public') {
+        return new Response(JSON.stringify({ defaultModel: 'gpt-image-2', sizes: ['auto', '1024x1024'], supportsImageEdit: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (String(input) === '/api/history') {
+        return new Response(JSON.stringify({ records: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (String(input) === '/api/jobs/job_1/cancel') {
+        return new Response(
+          JSON.stringify({ job: { ...queued, status: 'canceled', finishedAt: '2026-04-29T00:00:02.000Z' } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      return new Response(JSON.stringify({ jobs: [queued], maxParallel: 2, runningCount: 0, queuedCount: 1 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText('queued fox')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/jobs/job_1/cancel', expect.objectContaining({ method: 'POST' }));
+    expect(await screen.findByText(/Canceled at/i)).toBeInTheDocument();
+  });
 });
 
 function succeededJob(prompt: string) {
@@ -349,6 +386,21 @@ function succeededJob(prompt: string) {
         }
       ]
     }
+  };
+}
+
+function queuedJob(prompt: string) {
+  return {
+    id: 'job_1',
+    createdAt: '2026-04-29T00:00:00.000Z',
+    updatedAt: '2026-04-29T00:00:01.000Z',
+    status: 'queued',
+    mode: 'text',
+    prompt,
+    model: 'gpt-image-2',
+    size: '1024x1024',
+    quality: 'medium',
+    imageCount: 0
   };
 }
 

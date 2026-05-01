@@ -244,4 +244,22 @@ describe('imageJobRecordSchema', () => {
 
     expect(response.maxParallel).toBe(5);
   });
+
+  it('accepts canceled image jobs', () => {
+    const parsed = imageJobRecordSchema.parse({
+      id: 'job_canceled',
+      createdAt: '2026-04-29T00:00:00.000Z',
+      updatedAt: '2026-04-29T00:00:10.000Z',
+      status: 'canceled',
+      mode: 'text',
+      prompt: 'a fox',
+      model: 'gpt-image-2',
+      size: '2048x2048',
+      quality: 'high',
+      imageCount: 0,
+      finishedAt: '2026-04-29T00:00:10.000Z'
+    });
+
+    expect(parsed.status).toBe('canceled');
+  });
 });

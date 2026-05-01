@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  cancelImageJobTool,
   editImageTool,
   generateImageTool,
   getApiUrl,
@@ -212,6 +213,19 @@ describe('MCP tool handlers', () => {
     const result = await retryImageJobTool({ jobId: 'job_1' }, 'http://api.test');
 
     expect(JSON.parse(result.content[0].text)).toMatchObject({ id: 'job_1', status: 'queued' });
+  });
+
+  it('cancels queued image jobs', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('http://api.test/api/jobs/job_1/cancel');
+      expect(init?.method).toBe('POST');
+      return jsonResponse({ job: imageJobRecord({ status: 'canceled' }) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await cancelImageJobTool({ jobId: 'job_1' }, 'http://api.test');
+
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ id: 'job_1', status: 'canceled' });
   });
 });
 

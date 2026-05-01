@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ImageHistoryRecord, ImageJobRecord, ImageQuality, PublicConfig } from '@image-gen-web/shared';
 import {
+  cancelImageJob,
   clearFinishedJobs,
   clearHistory as clearImageHistory,
   fetchJobs,
@@ -131,6 +132,16 @@ export default function App() {
       setJobs((currentJobs) => currentJobs.map((currentJob) => (currentJob.id === response.job.id ? response.job : currentJob)));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to retry image job.');
+    }
+  }
+
+  async function handleCancelJob(job: ImageJobRecord) {
+    setError(null);
+    try {
+      const response = await cancelImageJob(job.id);
+      setJobs((currentJobs) => currentJobs.map((currentJob) => (currentJob.id === response.job.id ? response.job : currentJob)));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to cancel image job.');
     }
   }
 
@@ -314,6 +325,11 @@ export default function App() {
                         Retry
                       </button>
                     ) : null}
+                    {job.status === 'queued' ? (
+                      <button type="button" onClick={() => void handleCancelJob(job)}>
+                        Cancel
+                      </button>
+                    ) : null}
                     <button type="button" onClick={() => restoreJob(job)}>
                       Restore
                     </button>
@@ -381,6 +397,10 @@ function formatJobStatus(job: ImageJobRecord): string {
 
   if (job.status === 'succeeded') {
     return `Finished in ${job.durationMs ?? 0} ms`;
+  }
+
+  if (job.status === 'canceled') {
+    return `Canceled at ${new Date(job.finishedAt || job.updatedAt).toLocaleTimeString()}`;
   }
 
   return `Failed at ${new Date(job.finishedAt || job.updatedAt).toLocaleTimeString()}`;

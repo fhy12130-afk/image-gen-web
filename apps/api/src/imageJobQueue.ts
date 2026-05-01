@@ -62,6 +62,19 @@ export function createImageJobQueue(options: QueueOptions) {
     return snapshot(job);
   }
 
+  function cancelJob(jobId: string): ImageJobRecord | undefined {
+    const job = jobs.find((item) => item.id === jobId);
+    if (!job || job.status !== 'queued') {
+      return undefined;
+    }
+
+    job.status = 'canceled';
+    job.finishedAt = new Date().toISOString();
+    touch(job);
+    logDiagnostic('image.job.cancel', { jobId: job.id });
+    return snapshot(job);
+  }
+
   function stats() {
     return {
       jobs: listJobs(),
@@ -115,7 +128,7 @@ export function createImageJobQueue(options: QueueOptions) {
 
   function clearFinished(): ImageJobRecord[] {
     for (let index = jobs.length - 1; index >= 0; index -= 1) {
-      if (jobs[index].status === 'succeeded' || jobs[index].status === 'failed') {
+      if (jobs[index].status === 'succeeded' || jobs[index].status === 'failed' || jobs[index].status === 'canceled') {
         jobs.splice(index, 1);
       }
     }
@@ -208,6 +221,7 @@ export function createImageJobQueue(options: QueueOptions) {
     enqueueGenerate,
     enqueueEdit,
     retryJob,
+    cancelJob,
     getJob,
     listJobs,
     clearFinished,

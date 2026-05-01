@@ -146,6 +146,14 @@ export async function retryImageJob(jobId: string): Promise<ImageJobResponse> {
   );
 }
 
+export async function cancelImageJob(jobId: string): Promise<ImageJobResponse> {
+  return parseResponse<ImageJobResponse>(
+    await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: 'POST'
+    })
+  );
+}
+
 export async function clearFinishedJobs(): Promise<ImageJobsResponse> {
   return parseResponse<ImageJobsResponse>(
     await fetch('/api/jobs', {

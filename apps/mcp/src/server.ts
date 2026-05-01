@@ -116,6 +116,13 @@ export function createImageGenMcpServer(apiUrl = getApiUrl()) {
   );
 
   server.tool(
+    'cancel_image_job',
+    'Cancel a queued image job before it starts running.',
+    getImageJobInputSchema.shape,
+    async (input) => cancelImageJobTool(input, apiUrl)
+  );
+
+  server.tool(
     'list_image_history',
     'List recent image generation history records saved by the local API.',
     listHistoryInputSchema.shape,
@@ -228,6 +235,11 @@ export async function retryImageJobTool(input: GetImageJobInput, apiUrl = getApi
   return asTextResult(formatImageJob(response.job));
 }
 
+export async function cancelImageJobTool(input: GetImageJobInput, apiUrl = getApiUrl()): Promise<ToolResult> {
+  const response = await postJson<ImageJobResponse>(apiUrl, `/api/jobs/${encodeURIComponent(input.jobId)}/cancel`, {});
+  return asTextResult(formatImageJob(response.job));
+}
+
 export async function listImageHistoryTool(input: ListHistoryInput = {}, apiUrl = getApiUrl()): Promise<ToolResult> {
   const response = await getJson<ImageHistoryResponse>(apiUrl, '/api/history');
   const limit = input.limit || 10;
@@ -251,7 +263,7 @@ export async function getImageGenerationHelpTool(apiUrl = getApiUrl()): Promise<
   return asTextResult({
     apiUrl,
     tools: ['generate_image', 'edit_image', 'list_image_history', 'get_image_history_item'],
-    asyncTools: ['queue_image_generation', 'queue_image_edit', 'list_image_jobs', 'get_image_job', 'retry_image_job'],
+    asyncTools: ['queue_image_generation', 'queue_image_edit', 'list_image_jobs', 'get_image_job', 'retry_image_job', 'cancel_image_job'],
     defaults: {
       model: config.defaultModel,
       size: config.defaultSize,

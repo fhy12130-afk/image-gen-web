@@ -319,6 +319,15 @@ a {
   background: #fee4e2;
 }
 
+.job-canceled {
+  border-color: #cfd4dc;
+}
+
+.job-canceled .job-thumb {
+  color: var(--muted);
+  background: #f2f4f7;
+}
+
 .history-item h3 {
   margin: 0;
   color: var(--ink);

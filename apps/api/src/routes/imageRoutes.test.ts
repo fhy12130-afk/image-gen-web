@@ -226,6 +226,60 @@ describe('API routes', () => {
     expect(attempts).toBe(2);
   });
 
+  it('cancels queued image jobs without interrupting running jobs', async () => {
+    let releaseRunningJob: (() => void) | undefined;
+    const runningJob = new Promise<void>((resolve) => {
+      releaseRunningJob = resolve;
+    });
+    const app = buildApp({
+      config: {
+        apiPort: 8787,
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'secret',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 1
+      },
+      provider: {
+        generate: async (request) => {
+          if (request.prompt === 'running fox') {
+            await runningJob;
+          }
+
+          return [{ url: 'https://cdn.example.com/a.png', b64Json: null }];
+        },
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub()
+    });
+
+    const running = await app.inject({
+      method: 'POST',
+      url: '/api/jobs/image/generate',
+      payload: { prompt: 'running fox', model: 'gptimage2', size: '1024x1024', quality: 'high', n: 1 }
+    });
+    const queued = await app.inject({
+      method: 'POST',
+      url: '/api/jobs/image/generate',
+      payload: { prompt: 'queued fox', model: 'gptimage2', size: '1024x1024', quality: 'high', n: 1 }
+    });
+
+    expect(running.json().job.status).toBe('running');
+    expect(queued.json().job.status).toBe('queued');
+
+    const canceled = await app.inject({ method: 'POST', url: `/api/jobs/${queued.json().job.id}/cancel` });
+    expect(canceled.statusCode).toBe(200);
+    expect(canceled.json().job).toMatchObject({ status: 'canceled', prompt: 'queued fox' });
+
+    const jobs = await app.inject({ method: 'GET', url: '/api/jobs' });
+    expect(jobs.json().queuedCount).toBe(0);
+
+    releaseRunningJob?.();
+    const finished = await waitForJobStatus(app, running.json().job.id, 'succeeded');
+    expect(finished.prompt).toBe('running fox');
+  });
+
   it('normalizes validation errors', async () => {
     const app = buildApp({
       config: {
