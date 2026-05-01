@@ -23,7 +23,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const defaultModel = env.DEFAULT_IMAGE_MODEL || 'gptimage2';
 
   return {
-    apiPort: Number(env.API_PORT || 8787),
+    apiPort: Number(env.API_PORT || 8700),
     baseUrl: baseUrl ? normalizeBaseUrl(baseUrl) : '',
     apiKey,
     defaultModel,

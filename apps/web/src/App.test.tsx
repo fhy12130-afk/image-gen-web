@@ -265,8 +265,8 @@ describe('App', () => {
                   fileName: 'img_1.png',
                   mimeType: 'image/png',
                   bytes: 3,
-                  url: 'http://localhost:8787/api/history/image/img_1.png',
-                  downloadUrl: 'http://localhost:8787/api/history/image/img_1.png?download=1'
+                  url: 'http://localhost:8700/api/history/image/img_1.png',
+                  downloadUrl: 'http://localhost:8700/api/history/image/img_1.png?download=1'
                 }
               ]
             }
@@ -451,8 +451,8 @@ function succeededJob(prompt: string) {
           fileName: 'img_1.png',
           mimeType: 'image/png',
           bytes: 3,
-          url: 'http://localhost:8787/api/history/image/img_1.png',
-          downloadUrl: 'http://localhost:8787/api/history/image/img_1.png?download=1'
+          url: 'http://localhost:8700/api/history/image/img_1.png',
+          downloadUrl: 'http://localhost:8700/api/history/image/img_1.png?download=1'
         }
       ]
     }

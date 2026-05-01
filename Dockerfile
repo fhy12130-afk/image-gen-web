@@ -18,6 +18,6 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-EXPOSE 5173 8787
+EXPOSE 5173 8700
 
 CMD ["pnpm", "dev"]

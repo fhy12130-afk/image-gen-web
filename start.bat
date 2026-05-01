@@ -28,7 +28,7 @@ if errorlevel 1 (
 echo.
 echo Starting API and Web servers...
 echo Web: http://localhost:5173
-echo API: http://localhost:8787
+echo API: http://localhost:8700
 echo.
 echo Keep this window open while using the website.
 echo Press Ctrl+C to stop.

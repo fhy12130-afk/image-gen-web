@@ -21,7 +21,7 @@ npx pnpm@9.15.4 install
 Write-Host ""
 Write-Host "Starting API and Web servers..."
 Write-Host "Web: http://localhost:5173"
-Write-Host "API: http://localhost:8787"
+Write-Host "API: http://localhost:8700"
 Write-Host ""
 Write-Host "Keep this window open while using the website. Press Ctrl+C to stop."
 Write-Host ""

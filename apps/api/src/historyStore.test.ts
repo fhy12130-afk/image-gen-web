@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe('createHistoryStore', () => {
   it('saves base64 images and appends a history record', async () => {
-    const store = createHistoryStore({ dataDir: tempDir, publicBaseUrl: 'http://localhost:8787' });
+    const store = createHistoryStore({ dataDir: tempDir, publicBaseUrl: 'http://localhost:8700' });
     const record = await store.saveGeneration({
       mode: 'text',
       prompt: 'a fox',
@@ -40,7 +40,7 @@ describe('createHistoryStore', () => {
       'fetch',
       vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/jpeg' } }))
     );
-    const store = createHistoryStore({ dataDir: tempDir, publicBaseUrl: 'http://localhost:8787' });
+    const store = createHistoryStore({ dataDir: tempDir, publicBaseUrl: 'http://localhost:8700' });
 
     const record = await store.saveGeneration({
       mode: 'image',
@@ -56,7 +56,7 @@ describe('createHistoryStore', () => {
   });
 
   it('clears saved history and generated images', async () => {
-    const store = createHistoryStore({ dataDir: tempDir, publicBaseUrl: 'http://localhost:8787' });
+    const store = createHistoryStore({ dataDir: tempDir, publicBaseUrl: 'http://localhost:8700' });
     await store.saveGeneration({
       mode: 'text',
       prompt: 'a fox',

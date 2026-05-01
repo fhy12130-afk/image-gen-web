@@ -60,7 +60,7 @@ export type GetHistoryItemInput = z.infer<typeof getHistoryItemInputSchema>;
 export type GetImageJobInput = z.infer<typeof getImageJobInputSchema>;
 
 export function getApiUrl(env: NodeJS.ProcessEnv = process.env): string {
-  return (env.IMAGE_GEN_API_URL || 'http://localhost:8787').replace(/\/+$/, '');
+  return (env.IMAGE_GEN_API_URL || 'http://localhost:8700').replace(/\/+$/, '');
 }
 
 export function createImageGenMcpServer(apiUrl = getApiUrl()) {

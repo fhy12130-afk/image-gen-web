@@ -48,7 +48,7 @@ docker-start.bat
 
 ```text
 Web: http://localhost:5173
-API: http://localhost:8787
+API: http://localhost:8700
 ```
 
 生成历史会持久化到 Docker volume：
@@ -94,9 +94,9 @@ IMAGE_API_TIMEOUT_MS=900000
 IMAGE_API_MAX_RETRIES=2
 IMAGE_API_RETRY_DELAY_MS=8000
 MAX_PARALLEL_IMAGE_JOBS=2
-API_PORT=8787
+API_PORT=8700
 WEB_ORIGIN=http://localhost:5173
-IMAGE_GEN_API_URL=http://localhost:8787
+IMAGE_GEN_API_URL=http://localhost:8700
 ```
 
 `IMAGE_API_BASE_URL` 填基础 API 地址即可，不要把 API Key 写进前端代码。下面两种写法都会被服务端归一化：
@@ -212,7 +212,7 @@ MCP 客户端配置示例：
       "command": "node",
       "args": ["/absolute/path/to/image-gen-web/apps/mcp/dist/server.js"],
       "env": {
-        "IMAGE_GEN_API_URL": "http://localhost:8787"
+        "IMAGE_GEN_API_URL": "http://localhost:8700"
       }
     }
   }
@@ -249,7 +249,7 @@ npx pnpm@9.15.4 build
 
 ## 常见问题
 
-- 页面提示无法加载配置：确认 API 服务正在 `http://localhost:8787` 运行。
+- 页面提示无法加载配置：确认 API 服务正在 `http://localhost:8700` 运行。
 - provider 请求失败：检查 `IMAGE_API_BASE_URL`、`IMAGE_API_KEY` 和 `DEFAULT_IMAGE_MODEL`。
 - 图生图失败：确认 provider 支持 `/images/edits` 和 multipart 图片上传。
 - Docker 启动后生成失败：执行 `docker compose logs -f` 查看 provider 错误。

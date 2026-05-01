@@ -29,7 +29,7 @@ afterEach(async () => {
 
 describe('getApiUrl', () => {
   it('uses the default local API URL', () => {
-    expect(getApiUrl({})).toBe('http://localhost:8787');
+    expect(getApiUrl({})).toBe('http://localhost:8700');
   });
 
   it('normalizes configured API URLs', () => {
@@ -249,8 +249,8 @@ function historyRecord() {
         fileName: 'img_1.png',
         mimeType: 'image/png',
         bytes: 3,
-        url: 'http://localhost:8787/api/history/image/img_1.png',
-        downloadUrl: 'http://localhost:8787/api/history/image/img_1.png?download=1'
+        url: 'http://localhost:8700/api/history/image/img_1.png',
+        downloadUrl: 'http://localhost:8700/api/history/image/img_1.png?download=1'
       }
     ]
   };

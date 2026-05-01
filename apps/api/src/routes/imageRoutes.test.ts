@@ -21,8 +21,8 @@ function createHistoryStoreStub(): HistoryStore {
             fileName: 'img_1.png',
             mimeType: 'image/png',
             bytes: 3,
-            url: 'http://localhost:8787/api/history/image/img_1.png',
-            downloadUrl: 'http://localhost:8787/api/history/image/img_1.png?download=1'
+            url: 'http://localhost:8700/api/history/image/img_1.png',
+            downloadUrl: 'http://localhost:8700/api/history/image/img_1.png?download=1'
           }
         ]
       };
@@ -49,7 +49,7 @@ describe('API routes', () => {
   it('returns public config', async () => {
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -90,7 +90,7 @@ describe('API routes', () => {
     let savedSettings: unknown;
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: '',
         apiKey: '',
         defaultModel: 'gptimage2',
@@ -139,7 +139,7 @@ describe('API routes', () => {
   it('returns a clear error when provider settings are missing', async () => {
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: '',
         apiKey: '',
         defaultModel: 'gptimage2',
@@ -168,7 +168,7 @@ describe('API routes', () => {
     let receivedRequest: unknown;
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -202,7 +202,7 @@ describe('API routes', () => {
     const historyStore = createHistoryStoreStub();
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -231,7 +231,7 @@ describe('API routes', () => {
   it('queues image generation jobs without waiting for provider completion', async () => {
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -265,7 +265,7 @@ describe('API routes', () => {
     let attempts = 0;
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -311,7 +311,7 @@ describe('API routes', () => {
     });
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -361,7 +361,7 @@ describe('API routes', () => {
   it('normalizes validation errors', async () => {
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -391,7 +391,7 @@ describe('API routes', () => {
     let receivedFields: unknown;
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -445,7 +445,7 @@ describe('API routes', () => {
 
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -470,7 +470,7 @@ describe('API routes', () => {
   it('rejects unsafe download URLs', async () => {
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
@@ -494,7 +494,7 @@ describe('API routes', () => {
   it('returns JSON instead of dropping the connection for oversized uploads', async () => {
     const app = buildApp({
       config: {
-        apiPort: 8787,
+        apiPort: 8700,
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'secret',
         defaultModel: 'gptimage2',
