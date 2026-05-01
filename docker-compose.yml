@@ -8,10 +8,10 @@ services:
       - .env
     environment:
       API_PORT: "8787"
-      WEB_ORIGIN: "http://localhost:5173"
+      WEB_ORIGIN: "http://localhost:${WEB_PORT:-3000}"
       IMAGE_GEN_API_URL: "http://localhost:8787"
     ports:
-      - "5173:5173"
+      - "${WEB_PORT:-3000}:5173"
       - "8787:8787"
     volumes:
       - api-data:/app/apps/api/data
