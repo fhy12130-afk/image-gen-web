@@ -117,7 +117,7 @@ export function createImageGenMcpServer(apiUrl = getApiUrl()) {
 
   server.tool(
     'cancel_image_job',
-    'Cancel a queued image job before it starts running.',
+    'Cancel a queued or running image job. Running provider requests are aborted when possible.',
     getImageJobInputSchema.shape,
     async (input) => cancelImageJobTool(input, apiUrl)
   );

@@ -445,7 +445,7 @@ export default function App() {
                         Retry
                       </button>
                     ) : null}
-                    {job.status === 'queued' ? (
+                    {job.status === 'queued' || job.status === 'running' ? (
                       <button type="button" onClick={() => void handleCancelJob(job)}>
                         Cancel
                       </button>

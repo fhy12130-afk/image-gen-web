@@ -19,25 +19,27 @@ const webDistDir = join(apiDir, '..', '..', 'web', 'dist');
 const app = buildApp({
   config,
   provider: {
-    generate: (request) =>
+    generate: (request, signal) =>
       generateOpenAIImage(
         {
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           timeoutMs: config.imageApiTimeoutMs,
           maxRetries: config.imageApiMaxRetries,
-          retryDelayMs: config.imageApiRetryDelayMs
+          retryDelayMs: config.imageApiRetryDelayMs,
+          signal
         },
         request
       ),
-    edit: (fields, image) =>
+    edit: (fields, image, signal) =>
       editOpenAIImage(
         {
           baseUrl: config.baseUrl,
           apiKey: config.apiKey,
           timeoutMs: config.imageApiTimeoutMs,
           maxRetries: config.imageApiMaxRetries,
-          retryDelayMs: config.imageApiRetryDelayMs
+          retryDelayMs: config.imageApiRetryDelayMs,
+          signal
         },
         fields,
         image

@@ -11,7 +11,8 @@ import type { HistoryStore } from './historyStore.js';
 import type { ImageProvider, UploadedImage } from './app.js';
 
 type InternalImageJob = ImageJobRecord & {
-  run: () => Promise<{ durationMs: number; images: GeneratedImage[]; history?: ImageHistoryRecord }>;
+  controller: AbortController;
+  run: (signal: AbortSignal) => Promise<{ durationMs: number; images: GeneratedImage[]; history?: ImageHistoryRecord }>;
 };
 
 type QueueOptions = {
@@ -32,7 +33,7 @@ export function createImageJobQueue(options: QueueOptions) {
   const maxStoredJobs = Math.max(1, options.maxStoredJobs);
 
   function snapshot(job: InternalImageJob): ImageJobRecord {
-    const { run: _run, ...record } = job;
+    const { controller: _controller, run: _run, ...record } = job;
     return { ...record };
   }
 
@@ -61,6 +62,7 @@ export function createImageJobQueue(options: QueueOptions) {
     delete job.finishedAt;
     delete job.durationMs;
     delete job.history;
+    job.controller = new AbortController();
     touch(job);
     pump();
     return snapshot(job);
@@ -68,8 +70,12 @@ export function createImageJobQueue(options: QueueOptions) {
 
   function cancelJob(jobId: string): ImageJobRecord | undefined {
     const job = jobs.find((item) => item.id === jobId);
-    if (!job || job.status !== 'queued') {
+    if (!job || (job.status !== 'queued' && job.status !== 'running')) {
       return undefined;
+    }
+
+    if (job.status === 'running') {
+      job.controller.abort();
     }
 
     job.status = 'canceled';
@@ -112,9 +118,10 @@ export function createImageJobQueue(options: QueueOptions) {
       size: request.size,
       quality: request.quality,
       imageCount: 0,
-      run: async () => {
+      run: async (signal) => {
         const start = Date.now();
-        const images = await options.provider.generate(request);
+        const images = await options.provider.generate(request, signal);
+        throwIfCanceled(signal);
         const durationMs = Date.now() - start;
         const history = await options.historyStore?.saveGeneration({ mode: 'text', ...request, durationMs, images });
         return { images, durationMs, history };
@@ -138,9 +145,10 @@ export function createImageJobQueue(options: QueueOptions) {
       size: fields.size,
       quality: fields.quality,
       imageCount: images.length,
-      run: async () => {
+      run: async (signal) => {
         const start = Date.now();
-        const generatedImages = await options.provider.edit(fields, images);
+        const generatedImages = await options.provider.edit(fields, images, signal);
+        throwIfCanceled(signal);
         const durationMs = Date.now() - start;
         const history = await options.historyStore?.saveGeneration({ mode: 'image', ...fields, durationMs, images: generatedImages });
         return { images: generatedImages, durationMs, history };
@@ -182,6 +190,7 @@ export function createImageJobQueue(options: QueueOptions) {
     const now = new Date().toISOString();
     return {
       id: `job_${randomUUID().replaceAll('-', '')}`,
+      controller: new AbortController(),
       createdAt: now,
       updatedAt: now,
       status: 'queued',
@@ -220,8 +229,12 @@ export function createImageJobQueue(options: QueueOptions) {
     });
 
     void job
-      .run()
+      .run(job.controller.signal)
       .then((result) => {
+        if (job.status === 'canceled') {
+          return;
+        }
+
         job.status = 'succeeded';
         job.durationMs = result.durationMs;
         job.history = result.history;
@@ -241,6 +254,14 @@ export function createImageJobQueue(options: QueueOptions) {
         });
       })
       .catch((error) => {
+        if (job.status === 'canceled' || job.controller.signal.aborted) {
+          job.status = 'canceled';
+          job.finishedAt = job.finishedAt || new Date().toISOString();
+          touch(job);
+          trimStoredJobs();
+          return;
+        }
+
         job.status = 'failed';
         job.error = error instanceof Error ? error.message : String(error);
         job.finishedAt = new Date().toISOString();
@@ -266,4 +287,10 @@ export function createImageJobQueue(options: QueueOptions) {
     setMaxParallel,
     stats
   };
+}
+
+function throwIfCanceled(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new Error('Image job was canceled.');
+  }
 }

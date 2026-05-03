@@ -453,6 +453,47 @@ describe('API routes', () => {
     expect(finished.prompt).toBe('running fox');
   });
 
+  it('cancels running image jobs and aborts the provider request', async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const app = buildApp({
+      config: {
+        apiPort: 8700,
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'secret',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 1,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
+      },
+      provider: {
+        generate: async (_request, signal) => {
+          receivedSignal = signal;
+          await new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('provider aborted')), { once: true });
+          });
+          return [{ url: 'https://cdn.example.com/a.png', b64Json: null }];
+        },
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub()
+    });
+
+    const running = await app.inject({
+      method: 'POST',
+      url: '/api/jobs/image/generate',
+      payload: { prompt: 'running fox', model: 'gptimage2', size: '1024x1024', quality: 'high', n: 1 }
+    });
+    const canceled = await app.inject({ method: 'POST', url: `/api/jobs/${running.json().job.id}/cancel` });
+
+    expect(canceled.statusCode).toBe(200);
+    expect(canceled.json().job).toMatchObject({ status: 'canceled', prompt: 'running fox' });
+    expect(receivedSignal?.aborted).toBe(true);
+    const finalJob = await waitForJobStatus(app, running.json().job.id, 'canceled');
+    expect(finalJob.error).toBeUndefined();
+  });
+
   it('normalizes validation errors', async () => {
     const app = buildApp({
       config: {

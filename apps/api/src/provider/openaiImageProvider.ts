@@ -7,6 +7,7 @@ type ProviderConfig = {
   timeoutMs: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  signal?: AbortSignal;
 };
 
 const DEFAULT_PROVIDER_MAX_RETRIES = 2;
@@ -68,20 +69,30 @@ function extractProviderError(text: string): string {
   return text || 'Image provider rejected the request.';
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutExpired = false;
+  const timeout = setTimeout(() => {
+    timeoutExpired = true;
+    controller.abort();
+  }, timeoutMs);
+  const abortFromExternalSignal = () => controller.abort();
+  externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true });
+  if (externalSignal?.aborted) {
+    controller.abort();
+  }
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ProviderError(`Provider request timed out after ${timeoutMs} ms`);
+      throw new ProviderError(timeoutExpired ? `Provider request timed out after ${timeoutMs} ms` : 'Provider request was canceled.');
     }
 
     throw error;
   } finally {
     clearTimeout(timeout);
+    externalSignal?.removeEventListener('abort', abortFromExternalSignal);
   }
 }
 
@@ -95,7 +106,7 @@ async function requestProviderJson(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const response = await fetchWithTimeout(url, buildInit(), config.timeoutMs);
+      const response = await fetchWithTimeout(url, buildInit(), config.timeoutMs, config.signal);
       const text = await response.text();
 
       logDiagnostic(event, {
@@ -156,12 +167,36 @@ async function waitBeforeRetry(
   });
 
   if (delayMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    await waitWithAbort(delayMs, config.signal);
   }
+}
+
+function waitWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, delayMs);
+    const abort = () => {
+      clearTimeout(timeout);
+      cleanup();
+      reject(new ProviderError('Provider request was canceled.'));
+    };
+
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+    }
+  });
 }
 
 function isRetryableProviderError(error: ProviderError): boolean {
   if (error.message.includes('timed out')) {
+    return false;
+  }
+
+  if (error.message.includes('canceled')) {
     return false;
   }
 

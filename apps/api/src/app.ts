@@ -28,8 +28,8 @@ import { applySettingsUpdate, toStoredSettings, type SettingsStore } from './set
 export type UploadedImage = { buffer: Buffer; filename: string; mimetype: string };
 
 export type ImageProvider = {
-  generate: (request: ImageGenerationRequest) => Promise<GeneratedImage[]>;
-  edit: (fields: ImageEditFields, images: UploadedImage[]) => Promise<GeneratedImage[]>;
+  generate: (request: ImageGenerationRequest, signal?: AbortSignal) => Promise<GeneratedImage[]>;
+  edit: (fields: ImageEditFields, images: UploadedImage[], signal?: AbortSignal) => Promise<GeneratedImage[]>;
 };
 
 export function buildApp(options: {
@@ -182,7 +182,7 @@ export function buildApp(options: {
     const { jobId } = request.params as { jobId: string };
     const job = jobQueue.cancelJob(jobId);
     if (!job) {
-      return reply.status(400).send(apiError('VALIDATION_ERROR', 'Only queued image jobs can be canceled.'));
+      return reply.status(400).send(apiError('VALIDATION_ERROR', 'Only queued or running image jobs can be canceled.'));
     }
 
     return reply.status(200).send({ job });

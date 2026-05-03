@@ -351,6 +351,44 @@ describe('App', () => {
     expect(await screen.findByText(/Canceled at/i)).toBeInTheDocument();
   });
 
+  it('shows cancel actions for running image jobs', async () => {
+    const running = { ...queuedJob('running fox'), status: 'running', startedAt: '2026-04-29T00:00:01.000Z' };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/config/public') {
+        return new Response(JSON.stringify({ defaultModel: 'gpt-image-2', sizes: ['auto', '1024x1024'], supportsImageEdit: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (String(input) === '/api/history') {
+        return new Response(JSON.stringify({ records: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (String(input) === '/api/jobs/job_1/cancel') {
+        return new Response(
+          JSON.stringify({ job: { ...running, status: 'canceled', finishedAt: '2026-04-29T00:00:02.000Z' } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      return new Response(JSON.stringify({ jobs: [running], maxParallel: 2, runningCount: 1, queuedCount: 0 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText('running fox')).toBeInTheDocument();
+    expect(screen.getByText(/Running since/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/jobs/job_1/cancel', expect.objectContaining({ method: 'POST' }));
+    expect(await screen.findByText(/Canceled at/i)).toBeInTheDocument();
+  });
+
   it('saves runtime settings from the settings panel', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === '/api/config/public') {
