@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "pnpm --filter @image-gen-web/shared build && pnpm --parallel --filter @image-gen-web/api --filter @image-gen-web/web dev",
     "dev:npx": "npx pnpm@9.15.4 --filter @image-gen-web/shared build && npx pnpm@9.15.4 --parallel --filter @image-gen-web/api --filter @image-gen-web/web dev",
+    "start": "pnpm --filter @image-gen-web/api start",
     "mcp:dev": "pnpm --filter @image-gen-web/shared build && pnpm --filter @image-gen-web/mcp dev",
     "mcp:start": "pnpm --filter @image-gen-web/mcp start",
     "build": "pnpm -r build",

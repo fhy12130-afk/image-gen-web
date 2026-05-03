@@ -15,5 +15,6 @@ if errorlevel 1 (
   echo DOCKER_NODE_IMAGE=node:20-bookworm-slim>> ".env"
 )
 
-docker compose up --build
+docker compose up --build -d
+echo Started Image Gen Web at http://localhost:8700
 pause

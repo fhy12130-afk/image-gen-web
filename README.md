@@ -30,28 +30,29 @@ scripts            启动脚本相关测试
 
 ## Docker 启动
 
+Docker 镜像使用生产模式：先构建前端和 API，再只运行一个 Node API 进程。API 会直接托管前端静态文件，不会在服务器里启动 Vite dev server 或 tsx watch。
+
 在项目根目录执行：
 
 ```powershell
 copy .env.example .env
 notepad .env
-docker compose up --build
+docker compose up --build -d
 ```
 
-也可以直接双击：
+服务地址默认是：
 
 ```text
-docker-start.bat
+Web + API: http://localhost:8700
 ```
 
-服务地址：
+如果要改宿主机端口，可以在 `.env` 中设置：
 
-```text
-Web: http://localhost:5173
-API: http://localhost:8700
+```env
+WEB_PORT=3000
 ```
 
-生成历史会持久化到 Docker volume：
+然后访问 `http://localhost:3000`。生成历史、网页设置和本地保存的图片会持久化到 Docker volume：
 
 ```text
 image-gen-web_api-data
@@ -94,6 +95,8 @@ IMAGE_API_TIMEOUT_MS=900000
 IMAGE_API_MAX_RETRIES=2
 IMAGE_API_RETRY_DELAY_MS=8000
 MAX_PARALLEL_IMAGE_JOBS=2
+MAX_QUEUED_IMAGE_JOBS=30
+MAX_STORED_IMAGE_JOBS=100
 API_PORT=8700
 WEB_ORIGIN=http://localhost:5173
 IMAGE_GEN_API_URL=http://localhost:8700
@@ -150,6 +153,13 @@ IMAGE_API_BASE_URL=https://www.example.com/v1/images/generations
 
 ```env
 MAX_PARALLEL_IMAGE_JOBS=2
+```
+
+为了避免服务器内存无序增长，可以限制等待/运行中的任务数量，以及 API 内存里保留的任务记录数量：
+
+```env
+MAX_QUEUED_IMAGE_JOBS=30
+MAX_STORED_IMAGE_JOBS=100
 ```
 
 如果你的 provider 可以承受更高并发，可以把它调到 `5` 或更高。网络瞬断、HTTP `429`、HTTP `5xx` 等临时错误会自动重试：

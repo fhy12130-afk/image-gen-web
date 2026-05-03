@@ -8,11 +8,10 @@ services:
       - .env
     environment:
       API_PORT: "8700"
-      WEB_ORIGIN: "http://localhost:${WEB_PORT:-3000}"
+      WEB_ORIGIN: "http://localhost:${WEB_PORT:-8700}"
       IMAGE_GEN_API_URL: "http://localhost:8700"
     ports:
-      - "${WEB_PORT:-3000}:5173"
-      - "8700:8700"
+      - "${WEB_PORT:-8700}:8700"
     volumes:
       - api-data:/app/apps/api/data
     restart: unless-stopped

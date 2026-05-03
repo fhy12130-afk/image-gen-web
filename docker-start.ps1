@@ -13,4 +13,5 @@ if (-not (Select-String -Path ".env" -Pattern "^DOCKER_NODE_IMAGE=" -Quiet)) {
   Add-Content -Path ".env" -Value "DOCKER_NODE_IMAGE=node:20-bookworm-slim"
 }
 
-docker compose up --build
+docker compose up --build -d
+Write-Host "Started Image Gen Web at http://localhost:8700"

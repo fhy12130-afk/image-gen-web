@@ -1,6 +1,9 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import staticPlugin from '@fastify/static';
 import Fastify from 'fastify';
 import {
   DEFAULT_IMAGE_QUALITY,
@@ -16,11 +19,11 @@ import {
   type ImageGenerationRequest
 } from '@image-gen-web/shared';
 import type { ApiConfig } from './config';
-import { createRequestId, logDiagnostic, maskForLog, summarizeImages } from './diagnostics';
-import { apiError } from './errors';
-import type { HistoryStore } from './historyStore';
-import { createImageJobQueue } from './imageJobQueue';
-import { applySettingsUpdate, toStoredSettings, type SettingsStore } from './settingsStore';
+import { createRequestId, logDiagnostic, maskForLog, summarizeImages } from './diagnostics.js';
+import { apiError } from './errors.js';
+import type { HistoryStore } from './historyStore.js';
+import { createImageJobQueue } from './imageJobQueue.js';
+import { applySettingsUpdate, toStoredSettings, type SettingsStore } from './settingsStore.js';
 
 export type UploadedImage = { buffer: Buffer; filename: string; mimetype: string };
 
@@ -29,10 +32,18 @@ export type ImageProvider = {
   edit: (fields: ImageEditFields, images: UploadedImage[]) => Promise<GeneratedImage[]>;
 };
 
-export function buildApp(options: { config: ApiConfig; provider: ImageProvider; historyStore?: HistoryStore; settingsStore?: SettingsStore }) {
+export function buildApp(options: {
+  config: ApiConfig;
+  provider: ImageProvider;
+  historyStore?: HistoryStore;
+  settingsStore?: SettingsStore;
+  staticDir?: string;
+}) {
   const app = Fastify({ logger: false });
   const jobQueue = createImageJobQueue({
     maxParallel: options.config.maxParallelImageJobs,
+    maxQueuedJobs: options.config.maxQueuedImageJobs,
+    maxStoredJobs: options.config.maxStoredImageJobs,
     provider: options.provider,
     historyStore: options.historyStore
   });
@@ -182,6 +193,10 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
       return reply.status(400).send(apiError('CONFIG_MISSING', 'Image provider URL and API key are required.'));
     }
 
+    if (!jobQueue.canEnqueue()) {
+      return reply.status(429).send(apiError('VALIDATION_ERROR', 'Image job queue is full. Try again after an active job finishes.'));
+    }
+
     const parsed = imageGenerationRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply
@@ -195,6 +210,10 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
   app.post('/api/jobs/image/edit', async (request, reply) => {
     if (!isProviderConfigured(options.config)) {
       return reply.status(400).send(apiError('CONFIG_MISSING', 'Image provider URL and API key are required.'));
+    }
+
+    if (!jobQueue.canEnqueue()) {
+      return reply.status(429).send(apiError('VALIDATION_ERROR', 'Image job queue is full. Try again after an active job finishes.'));
     }
 
     const parts = request.parts();
@@ -320,6 +339,22 @@ export function buildApp(options: { config: ApiConfig; provider: ImageProvider; 
       return reply.status(502).send(apiError('PROVIDER_ERROR', 'Image provider request failed.', details));
     }
   });
+
+  if (options.staticDir && existsSync(join(options.staticDir, 'index.html'))) {
+    app.register(staticPlugin, {
+      root: options.staticDir,
+      prefix: '/',
+      wildcard: false
+    });
+
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/')) {
+        return reply.status(404).send(apiError('VALIDATION_ERROR', 'API route was not found.'));
+      }
+
+      return (reply as unknown as { sendFile: (path: string) => unknown }).sendFile('index.html');
+    });
+  }
 
   return app;
 }

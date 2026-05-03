@@ -1,10 +1,10 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildApp } from './app';
-import { loadConfigFromEnvFile } from './config';
-import { createHistoryStore } from './historyStore';
-import { editOpenAIImage, generateOpenAIImage } from './provider/openaiImageProvider';
-import { applyStoredSettings, createSettingsStore } from './settingsStore';
+import { buildApp } from './app.js';
+import { loadConfigFromEnvFile } from './config.js';
+import { createHistoryStore } from './historyStore.js';
+import { editOpenAIImage, generateOpenAIImage } from './provider/openaiImageProvider.js';
+import { applyStoredSettings, createSettingsStore } from './settingsStore.js';
 
 const config = loadConfigFromEnvFile();
 const apiDir = dirname(fileURLToPath(import.meta.url));
@@ -13,8 +13,9 @@ const settingsStore = createSettingsStore(join(dataDir, 'settings.json'));
 applyStoredSettings(config, await settingsStore.loadSettings());
 const historyStore = createHistoryStore({
   dataDir,
-  publicBaseUrl: `http://localhost:${config.apiPort}`
+  publicBaseUrl: ''
 });
+const webDistDir = join(apiDir, '..', '..', 'web', 'dist');
 const app = buildApp({
   config,
   provider: {
@@ -43,7 +44,8 @@ const app = buildApp({
       )
   },
   historyStore,
-  settingsStore
+  settingsStore,
+  staticDir: webDistDir
 });
 
 await app.listen({ port: config.apiPort, host: '0.0.0.0' });

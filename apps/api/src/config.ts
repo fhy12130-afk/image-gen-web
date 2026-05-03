@@ -11,6 +11,8 @@ export type ApiConfig = {
   imageApiMaxRetries?: number;
   imageApiRetryDelayMs?: number;
   maxParallelImageJobs: number;
+  maxQueuedImageJobs: number;
+  maxStoredImageJobs: number;
 };
 
 export function normalizeBaseUrl(url: string): string {
@@ -31,7 +33,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     imageApiTimeoutMs: Number(env.IMAGE_API_TIMEOUT_MS || 900000),
     imageApiMaxRetries: Math.max(0, Number(env.IMAGE_API_MAX_RETRIES || 2)),
     imageApiRetryDelayMs: Math.max(0, Number(env.IMAGE_API_RETRY_DELAY_MS || 8000)),
-    maxParallelImageJobs: Math.max(1, Number(env.MAX_PARALLEL_IMAGE_JOBS || 2))
+    maxParallelImageJobs: Math.max(1, Number(env.MAX_PARALLEL_IMAGE_JOBS || 2)),
+    maxQueuedImageJobs: Math.max(1, Number(env.MAX_QUEUED_IMAGE_JOBS || 30)),
+    maxStoredImageJobs: Math.max(1, Number(env.MAX_STORED_IMAGE_JOBS || 100))
   };
 }
 

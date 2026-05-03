@@ -189,7 +189,7 @@ export async function queueImageGenerationTool(input: GenerateImageInput, apiUrl
   return asTextResult({
     queued: true,
     maxParallelImageJobs: config.maxParallelImageJobs,
-    job: formatImageJob(response.job)
+    job: formatImageJob(response.job, apiUrl)
   });
 }
 
@@ -211,7 +211,7 @@ export async function queueImageEditTool(input: EditImageInput, apiUrl = getApiU
   return asTextResult({
     queued: true,
     maxParallelImageJobs: config.maxParallelImageJobs,
-    job: formatImageJob(response.job)
+    job: formatImageJob(response.job, apiUrl)
   });
 }
 
@@ -221,30 +221,30 @@ export async function listImageJobsTool(apiUrl = getApiUrl()): Promise<ToolResul
     maxParallel: response.maxParallel,
     runningCount: response.runningCount,
     queuedCount: response.queuedCount,
-    jobs: response.jobs.map(formatImageJob)
+    jobs: response.jobs.map((job) => formatImageJob(job, apiUrl))
   });
 }
 
 export async function getImageJobTool(input: GetImageJobInput, apiUrl = getApiUrl()): Promise<ToolResult> {
   const response = await getJson<ImageJobResponse>(apiUrl, `/api/jobs/${encodeURIComponent(input.jobId)}`);
-  return asTextResult(formatImageJob(response.job));
+  return asTextResult(formatImageJob(response.job, apiUrl));
 }
 
 export async function retryImageJobTool(input: GetImageJobInput, apiUrl = getApiUrl()): Promise<ToolResult> {
   const response = await postJson<ImageJobResponse>(apiUrl, `/api/jobs/${encodeURIComponent(input.jobId)}/retry`, {});
-  return asTextResult(formatImageJob(response.job));
+  return asTextResult(formatImageJob(response.job, apiUrl));
 }
 
 export async function cancelImageJobTool(input: GetImageJobInput, apiUrl = getApiUrl()): Promise<ToolResult> {
   const response = await postJson<ImageJobResponse>(apiUrl, `/api/jobs/${encodeURIComponent(input.jobId)}/cancel`, {});
-  return asTextResult(formatImageJob(response.job));
+  return asTextResult(formatImageJob(response.job, apiUrl));
 }
 
 export async function listImageHistoryTool(input: ListHistoryInput = {}, apiUrl = getApiUrl()): Promise<ToolResult> {
   const response = await getJson<ImageHistoryResponse>(apiUrl, '/api/history');
   const limit = input.limit || 10;
   return asTextResult({
-    records: response.records.slice(0, limit).map(formatHistoryRecord)
+    records: response.records.slice(0, limit).map((record) => formatHistoryRecord(record, apiUrl))
   });
 }
 
@@ -255,7 +255,7 @@ export async function getImageHistoryItemTool(input: GetHistoryItemInput, apiUrl
     throw new Error(`History record not found: ${input.historyId}`);
   }
 
-  return asTextResult(formatHistoryRecord(record));
+  return asTextResult(formatHistoryRecord(record, apiUrl));
 }
 
 export async function getImageGenerationHelpTool(apiUrl = getApiUrl()): Promise<ToolResult> {
@@ -385,8 +385,8 @@ function formatImageResponse(action: 'generated' | 'edited', response: ImageResp
     images:
       response.history?.images.map((image) => ({
         id: image.id,
-        url: image.url,
-        downloadUrl: image.downloadUrl,
+        url: absoluteApiUrl(apiUrl, image.url),
+        downloadUrl: absoluteApiUrl(apiUrl, image.downloadUrl),
         fileName: image.fileName,
         mimeType: image.mimeType,
         bytes: image.bytes
@@ -400,7 +400,7 @@ function formatImageResponse(action: 'generated' | 'edited', response: ImageResp
   };
 }
 
-function formatHistoryRecord(record: ImageHistoryRecord) {
+function formatHistoryRecord(record: ImageHistoryRecord, apiUrl = '') {
   return {
     id: record.id,
     createdAt: record.createdAt,
@@ -412,8 +412,8 @@ function formatHistoryRecord(record: ImageHistoryRecord) {
     durationMs: record.durationMs,
     images: record.images.map((image) => ({
       id: image.id,
-      url: image.url,
-      downloadUrl: image.downloadUrl,
+      url: absoluteApiUrl(apiUrl, image.url),
+      downloadUrl: absoluteApiUrl(apiUrl, image.downloadUrl),
       fileName: image.fileName,
       mimeType: image.mimeType,
       bytes: image.bytes
@@ -421,7 +421,7 @@ function formatHistoryRecord(record: ImageHistoryRecord) {
   };
 }
 
-function formatImageJob(job: ImageJobRecord) {
+function formatImageJob(job: ImageJobRecord, apiUrl = '') {
   return {
     id: job.id,
     createdAt: job.createdAt,
@@ -437,7 +437,7 @@ function formatImageJob(job: ImageJobRecord) {
     finishedAt: job.finishedAt || null,
     durationMs: job.durationMs ?? null,
     error: job.error ?? null,
-    history: job.history ? formatHistoryRecord(job.history) : null
+    history: job.history ? formatHistoryRecord(job.history, apiUrl) : null
   };
 }
 
@@ -445,6 +445,14 @@ function asTextResult(payload: unknown): ToolResult {
   return {
     content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }]
   };
+}
+
+function absoluteApiUrl(apiUrl: string, pathOrUrl: string | null): string | null {
+  if (!pathOrUrl || !pathOrUrl.startsWith('/')) {
+    return pathOrUrl;
+  }
+
+  return `${apiUrl}${pathOrUrl}`;
 }
 
 function inferMimeType(filePath: string): string {

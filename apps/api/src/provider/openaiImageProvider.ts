@@ -1,5 +1,5 @@
 import type { GeneratedImage, ImageEditFields, ImageGenerationRequest } from '@image-gen-web/shared';
-import { logDiagnostic } from '../diagnostics';
+import { logDiagnostic } from '../diagnostics.js';
 
 type ProviderConfig = {
   baseUrl: string;

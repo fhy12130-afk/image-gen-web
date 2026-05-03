@@ -6,9 +6,9 @@ import type {
   ImageHistoryRecord,
   ImageJobRecord
 } from '@image-gen-web/shared';
-import { logDiagnostic, summarizeImages } from './diagnostics';
-import type { HistoryStore } from './historyStore';
-import type { ImageProvider, UploadedImage } from './app';
+import { logDiagnostic, summarizeImages } from './diagnostics.js';
+import type { HistoryStore } from './historyStore.js';
+import type { ImageProvider, UploadedImage } from './app.js';
 
 type InternalImageJob = ImageJobRecord & {
   run: () => Promise<{ durationMs: number; images: GeneratedImage[]; history?: ImageHistoryRecord }>;
@@ -16,6 +16,8 @@ type InternalImageJob = ImageJobRecord & {
 
 type QueueOptions = {
   maxParallel: number;
+  maxQueuedJobs: number;
+  maxStoredJobs: number;
   provider: ImageProvider;
   historyStore?: HistoryStore;
 };
@@ -26,6 +28,8 @@ export function createImageJobQueue(options: QueueOptions) {
   const jobs: InternalImageJob[] = [];
   let runningCount = 0;
   let maxParallel = Math.max(1, options.maxParallel);
+  const maxQueuedJobs = Math.max(1, options.maxQueuedJobs);
+  const maxStoredJobs = Math.max(1, options.maxStoredJobs);
 
   function snapshot(job: InternalImageJob): ImageJobRecord {
     const { run: _run, ...record } = job;
@@ -71,6 +75,7 @@ export function createImageJobQueue(options: QueueOptions) {
     job.status = 'canceled';
     job.finishedAt = new Date().toISOString();
     touch(job);
+    trimStoredJobs();
     logDiagnostic('image.job.cancel', { jobId: job.id });
     return snapshot(job);
   }
@@ -79,9 +84,15 @@ export function createImageJobQueue(options: QueueOptions) {
     return {
       jobs: listJobs(),
       maxParallel,
+      maxQueuedJobs,
+      maxStoredJobs,
       runningCount,
       queuedCount: jobs.filter((job) => job.status === 'queued').length
     };
+  }
+
+  function canEnqueue(): boolean {
+    return jobs.filter((job) => job.status === 'queued' || job.status === 'running').length < maxQueuedJobs;
   }
 
   function setMaxParallel(nextMaxParallel: number): void {
@@ -90,6 +101,10 @@ export function createImageJobQueue(options: QueueOptions) {
   }
 
   function enqueueGenerate(request: ImageGenerationRequest): ImageJobRecord {
+    if (!canEnqueue()) {
+      throw new Error(`Image job queue is full. Try again after one of the ${maxQueuedJobs} active jobs finishes.`);
+    }
+
     const job = createJob({
       mode: 'text',
       prompt: request.prompt,
@@ -106,11 +121,16 @@ export function createImageJobQueue(options: QueueOptions) {
       }
     });
     jobs.unshift(job);
+    trimStoredJobs();
     pump();
     return snapshot(job);
   }
 
   function enqueueEdit(fields: ImageEditFields, images: UploadedImage[]): ImageJobRecord {
+    if (!canEnqueue()) {
+      throw new Error(`Image job queue is full. Try again after one of the ${maxQueuedJobs} active jobs finishes.`);
+    }
+
     const job = createJob({
       mode: 'image',
       prompt: fields.prompt,
@@ -127,6 +147,7 @@ export function createImageJobQueue(options: QueueOptions) {
       }
     });
     jobs.unshift(job);
+    trimStoredJobs();
     pump();
     return snapshot(job);
   }
@@ -138,6 +159,15 @@ export function createImageJobQueue(options: QueueOptions) {
       }
     }
     return listJobs();
+  }
+
+  function trimStoredJobs() {
+    for (let index = jobs.length - 1; jobs.length > maxStoredJobs && index >= 0; index -= 1) {
+      const job = jobs[index];
+      if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'canceled') {
+        jobs.splice(index, 1);
+      }
+    }
   }
 
   function createJob(input: {
@@ -197,6 +227,7 @@ export function createImageJobQueue(options: QueueOptions) {
         job.history = result.history;
         job.finishedAt = new Date().toISOString();
         touch(job);
+        trimStoredJobs();
         logDiagnostic('image.job.success', {
           jobId: job.id,
           durationMs: result.durationMs,
@@ -214,6 +245,7 @@ export function createImageJobQueue(options: QueueOptions) {
         job.error = error instanceof Error ? error.message : String(error);
         job.finishedAt = new Date().toISOString();
         touch(job);
+        trimStoredJobs();
         logDiagnostic('image.job.error', { jobId: job.id, details: job.error });
       })
       .finally(() => {
@@ -227,6 +259,7 @@ export function createImageJobQueue(options: QueueOptions) {
     enqueueEdit,
     retryJob,
     cancelJob,
+    canEnqueue,
     getJob,
     listJobs,
     clearFinished,

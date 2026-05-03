@@ -37,6 +37,8 @@ describe('loadConfigFromEnvFile', () => {
     expect(config.imageApiMaxRetries).toBe(2);
     expect(config.imageApiRetryDelayMs).toBe(8000);
     expect(config.maxParallelImageJobs).toBe(2);
+    expect(config.maxQueuedImageJobs).toBe(30);
+    expect(config.maxStoredImageJobs).toBe(100);
   });
 
   it('normalizes a full image generation endpoint to the provider base URL', () => {
@@ -62,10 +64,14 @@ describe('loadConfigFromEnvFile', () => {
     const config = loadConfigFromEnvFile(process.cwd(), {
       IMAGE_API_BASE_URL: 'https://api.example.com/v1',
       IMAGE_API_KEY: 'test-key',
-      MAX_PARALLEL_IMAGE_JOBS: '8'
+      MAX_PARALLEL_IMAGE_JOBS: '8',
+      MAX_QUEUED_IMAGE_JOBS: '12',
+      MAX_STORED_IMAGE_JOBS: '40'
     });
 
     expect(config.maxParallelImageJobs).toBe(8);
+    expect(config.maxQueuedImageJobs).toBe(12);
+    expect(config.maxStoredImageJobs).toBe(40);
   });
 
   it('allows overriding provider retry settings from env', () => {

@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildApp } from '../app';
 import type { HistoryStore } from '../historyStore';
 
@@ -55,7 +58,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -96,7 +101,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 2
+        maxParallelImageJobs: 2,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -145,7 +152,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 2
+        maxParallelImageJobs: 2,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -164,6 +173,82 @@ describe('API routes', () => {
     expect(response.json().error.code).toBe('CONFIG_MISSING');
   });
 
+  it('rejects new queued work when the active job limit is reached', async () => {
+    let releaseRunningJob: (() => void) | undefined;
+    const runningJob = new Promise<void>((resolve) => {
+      releaseRunningJob = resolve;
+    });
+    const app = buildApp({
+      config: {
+        apiPort: 8700,
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'secret',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 1,
+        maxQueuedImageJobs: 1,
+        maxStoredImageJobs: 100
+      },
+      provider: {
+        generate: async () => {
+          await runningJob;
+          return [{ url: 'https://cdn.example.com/a.png', b64Json: null }];
+        },
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub()
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/jobs/image/generate',
+      payload: { prompt: 'running fox', model: 'gptimage2', size: '1024x1024', quality: 'high', n: 1 }
+    });
+    const rejected = await app.inject({
+      method: 'POST',
+      url: '/api/jobs/image/generate',
+      payload: { prompt: 'queued fox', model: 'gptimage2', size: '1024x1024', quality: 'high', n: 1 }
+    });
+
+    expect(rejected.statusCode).toBe(429);
+    expect(rejected.json().error.message).toContain('queue is full');
+    releaseRunningJob?.();
+  });
+
+  it('serves built web assets when a static directory is configured', async () => {
+    const staticDir = await mkdtemp(join(tmpdir(), 'image-gen-static-'));
+    try {
+      await writeFile(join(staticDir, 'index.html'), '<html><body>Image Gen Web</body></html>');
+      const app = buildApp({
+        config: {
+          apiPort: 8700,
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'secret',
+          defaultModel: 'gptimage2',
+          webOrigin: 'http://localhost:5173',
+          imageApiTimeoutMs: 900000,
+          maxParallelImageJobs: 1,
+          maxQueuedImageJobs: 30,
+          maxStoredImageJobs: 100
+        },
+        provider: {
+          generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
+          edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+        },
+        historyStore: createHistoryStoreStub(),
+        staticDir
+      });
+
+      const response = await app.inject({ method: 'GET', url: '/' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain('Image Gen Web');
+    } finally {
+      await rm(staticDir, { recursive: true, force: true });
+    }
+  });
+
   it('generates images through provider', async () => {
     let receivedRequest: unknown;
     const app = buildApp({
@@ -174,7 +259,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async (request) => {
@@ -208,7 +295,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -237,7 +326,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -271,7 +362,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 1
+        maxParallelImageJobs: 1,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => {
@@ -317,7 +410,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 1
+        maxParallelImageJobs: 1,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async (request) => {
@@ -367,7 +462,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -397,7 +494,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -451,7 +550,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -476,7 +577,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
@@ -500,7 +603,9 @@ describe('API routes', () => {
         defaultModel: 'gptimage2',
         webOrigin: 'http://localhost:5173',
         imageApiTimeoutMs: 900000,
-        maxParallelImageJobs: 5
+        maxParallelImageJobs: 5,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
       },
       provider: {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],

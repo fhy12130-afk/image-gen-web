@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ApiSettingsUpdate } from '@image-gen-web/shared';
-import type { ApiConfig } from './config';
-import { normalizeBaseUrl } from './config';
+import type { ApiConfig } from './config.js';
+import { normalizeBaseUrl } from './config.js';
 
 export type StoredApiSettings = {
   baseUrl?: string;
