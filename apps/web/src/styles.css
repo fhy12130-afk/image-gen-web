@@ -44,6 +44,7 @@ select {
   right: 0;
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
 }
 
 .settings-button {

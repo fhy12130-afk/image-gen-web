@@ -7,6 +7,8 @@ import type {
   ImageResponse,
   ApiSettingsResponse,
   ApiSettingsUpdate,
+  ClientJobSettings,
+  ProviderCredentials,
   PublicConfig
 } from '@image-gen-web/shared';
 
@@ -94,12 +96,16 @@ export async function editImage(fields: {
   size: string;
   quality: ImageQuality;
   images: File[];
+  provider?: ProviderCredentials;
+  client?: ClientJobSettings;
 }): Promise<ImageResponse> {
   const form = new FormData();
   form.set('prompt', fields.prompt);
   form.set('model', fields.model);
   form.set('size', fields.size);
   form.set('quality', fields.quality);
+  appendProviderFields(form, fields.provider);
+  appendClientFields(form, fields.client);
   for (const image of fields.images) {
     form.append('image', image);
   }
@@ -132,12 +138,16 @@ export async function queueImageEdit(fields: {
   size: string;
   quality: ImageQuality;
   images: File[];
+  provider?: ProviderCredentials;
+  client?: ClientJobSettings;
 }): Promise<ImageJobResponse> {
   const form = new FormData();
   form.set('prompt', fields.prompt);
   form.set('model', fields.model);
   form.set('size', fields.size);
   form.set('quality', fields.quality);
+  appendProviderFields(form, fields.provider);
+  appendClientFields(form, fields.client);
   for (const image of fields.images) {
     form.append('image', image);
   }
@@ -150,42 +160,77 @@ export async function queueImageEdit(fields: {
   );
 }
 
-export async function fetchJobs(): Promise<ImageJobsResponse> {
-  return parseResponse<ImageJobsResponse>(await fetch('/api/jobs'));
+export async function fetchJobs(clientId?: string): Promise<ImageJobsResponse> {
+  return parseResponse<ImageJobsResponse>(await fetch(withClientQuery('/api/jobs', clientId)));
 }
 
-export async function retryImageJob(jobId: string): Promise<ImageJobResponse> {
+export async function retryImageJob(jobId: string, provider?: ProviderCredentials, client?: ClientJobSettings): Promise<ImageJobResponse> {
   return parseResponse<ImageJobResponse>(
-    await fetch(`/api/jobs/${encodeURIComponent(jobId)}/retry`, {
+    await fetch(withClientQuery(`/api/jobs/${encodeURIComponent(jobId)}/retry`, client?.id), {
+      method: 'POST',
+      ...(provider || client
+        ? {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, client })
+          }
+        : {})
+    })
+  );
+}
+
+export async function cancelImageJob(jobId: string, clientId?: string): Promise<ImageJobResponse> {
+  return parseResponse<ImageJobResponse>(
+    await fetch(withClientQuery(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, clientId), {
       method: 'POST'
     })
   );
 }
 
-export async function cancelImageJob(jobId: string): Promise<ImageJobResponse> {
-  return parseResponse<ImageJobResponse>(
-    await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
-      method: 'POST'
-    })
-  );
-}
-
-export async function clearFinishedJobs(): Promise<ImageJobsResponse> {
+export async function clearFinishedJobs(clientId?: string): Promise<ImageJobsResponse> {
   return parseResponse<ImageJobsResponse>(
-    await fetch('/api/jobs', {
+    await fetch(withClientQuery('/api/jobs', clientId), {
       method: 'DELETE'
     })
   );
 }
 
-export async function fetchHistory(): Promise<ImageHistoryResponse> {
-  return parseResponse<ImageHistoryResponse>(await fetch('/api/history'));
+export async function fetchHistory(clientId?: string): Promise<ImageHistoryResponse> {
+  return parseResponse<ImageHistoryResponse>(await fetch(withClientQuery('/api/history', clientId)));
 }
 
-export async function clearHistory(): Promise<ImageHistoryResponse> {
+export async function clearHistory(clientId?: string): Promise<ImageHistoryResponse> {
   return parseResponse<ImageHistoryResponse>(
-    await fetch('/api/history', {
+    await fetch(withClientQuery('/api/history', clientId), {
       method: 'DELETE'
     })
   );
+}
+
+function appendProviderFields(form: FormData, provider?: ProviderCredentials): void {
+  if (!provider) {
+    return;
+  }
+
+  if (provider.baseUrl) {
+    form.set('providerBaseUrl', provider.baseUrl);
+  }
+  form.set('providerApiKey', provider.apiKey);
+}
+
+function appendClientFields(form: FormData, client?: ClientJobSettings): void {
+  if (!client) {
+    return;
+  }
+
+  form.set('clientId', client.id);
+  form.set('clientMaxParallelJobs', String(client.maxParallelJobs));
+}
+
+function withClientQuery(path: string, clientId?: string): string {
+  if (!clientId) {
+    return path;
+  }
+
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}clientId=${encodeURIComponent(clientId)}`;
 }

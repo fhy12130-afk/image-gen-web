@@ -1,6 +1,11 @@
 import type { GeneratedImage, ImageEditFields, ImageGenerationRequest } from '@image-gen-web/shared';
 import { logDiagnostic } from '../diagnostics.js';
 
+type ProviderTelemetryCapture = {
+  upstreamRequest?: unknown;
+  upstreamResponse?: unknown;
+};
+
 type ProviderConfig = {
   baseUrl: string;
   apiKey: string;
@@ -8,6 +13,7 @@ type ProviderConfig = {
   maxRetries?: number;
   retryDelayMs?: number;
   signal?: AbortSignal;
+  telemetry?: ProviderTelemetryCapture;
 };
 
 const DEFAULT_PROVIDER_MAX_RETRIES = 2;
@@ -100,14 +106,31 @@ async function requestProviderJson(
   config: ProviderConfig,
   event: 'provider.generate.response' | 'provider.edit.response',
   url: string,
-  buildInit: () => RequestInit
+  buildInit: () => RequestInit,
+  upstreamRequest?: unknown
 ): Promise<unknown> {
   const maxAttempts = Math.max(1, (config.maxRetries ?? DEFAULT_PROVIDER_MAX_RETRIES) + 1);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
+      captureTelemetryAttempt(config.telemetry, 'upstreamRequest', {
+        url,
+        attempt,
+        maxAttempts,
+        body: upstreamRequest
+      });
       const response = await fetchWithTimeout(url, buildInit(), config.timeoutMs, config.signal);
       const text = await response.text();
+      const upstreamResponse = {
+        attempt,
+        maxAttempts,
+        status: response.status,
+        ok: response.ok,
+        contentType: response.headers.get('content-type'),
+        body: parseJsonOrText(text)
+      };
+
+      captureTelemetryAttempt(config.telemetry, 'upstreamResponse', upstreamResponse);
 
       logDiagnostic(event, {
         url,
@@ -133,6 +156,15 @@ async function requestProviderJson(
       return text ? JSON.parse(text) : null;
     } catch (error) {
       const providerError = normalizeProviderError(error);
+      if (!providerError.statusCode) {
+        captureTelemetryAttempt(config.telemetry, 'upstreamResponse', {
+          url,
+          attempt,
+          maxAttempts,
+          ok: false,
+          error: providerError.message
+        });
+      }
       if (attempt < maxAttempts && isRetryableProviderError(providerError)) {
         await waitBeforeRetry(config, event, url, attempt, maxAttempts, providerError.message, providerError.statusCode);
         continue;
@@ -143,6 +175,29 @@ async function requestProviderJson(
   }
 
   throw new ProviderError('Image provider request failed after all retry attempts.');
+}
+
+function captureTelemetryAttempt(
+  telemetry: ProviderTelemetryCapture | undefined,
+  key: keyof ProviderTelemetryCapture,
+  value: unknown
+): void {
+  if (!telemetry) {
+    return;
+  }
+
+  const current = telemetry[key];
+  if (!current) {
+    telemetry[key] = value;
+    return;
+  }
+
+  if (Array.isArray(current)) {
+    telemetry[key] = [...current, value];
+    return;
+  }
+
+  telemetry[key] = [current, value];
 }
 
 async function waitBeforeRetry(
@@ -258,6 +313,13 @@ export async function generateOpenAIImage(
   request: ImageGenerationRequest
 ): Promise<GeneratedImage[]> {
   const url = buildProviderUrl(config.baseUrl, '/images/generations');
+  const upstreamRequest = {
+    model: request.model,
+    prompt: request.prompt,
+    size: request.size,
+    quality: request.quality,
+    n: request.n
+  };
   const payload = await requestProviderJson(config, 'provider.generate.response', url, () => ({
     method: 'POST',
     headers: {
@@ -265,13 +327,13 @@ export async function generateOpenAIImage(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: request.model,
-      prompt: request.prompt,
-      size: request.size,
-      quality: request.quality,
-      n: request.n
+      model: upstreamRequest.model,
+      prompt: upstreamRequest.prompt,
+      size: upstreamRequest.size,
+      quality: upstreamRequest.quality,
+      n: upstreamRequest.n
     })
-  }));
+  }), upstreamRequest);
 
   return normalizeOpenAIImageResponse(payload);
 }
@@ -282,15 +344,38 @@ export async function editOpenAIImage(
   images: { buffer: Buffer; filename: string; mimetype: string }[]
 ): Promise<GeneratedImage[]> {
   const url = buildProviderUrl(config.baseUrl, '/images/edits');
+  const upstreamRequest = {
+    prompt: fields.prompt,
+    model: fields.model,
+    size: fields.size,
+    quality: fields.quality,
+    images: images.map((image) => ({
+      filename: image.filename,
+      mimetype: image.mimetype,
+      bytes: image.buffer.byteLength
+    }))
+  };
   const payload = await requestProviderJson(config, 'provider.edit.response', url, () => ({
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey}`
     },
     body: buildEditForm(fields, images)
-  }));
+  }), upstreamRequest);
 
   return normalizeOpenAIImageResponse(payload);
+}
+
+function parseJsonOrText(text: string): unknown {
+  if (!text) {
+    return '';
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 function buildEditForm(fields: ImageEditFields, images: { buffer: Buffer; filename: string; mimetype: string }[]): FormData {

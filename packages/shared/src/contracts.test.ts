@@ -82,6 +82,39 @@ describe('imageGenerationRequestSchema', () => {
     expect(result.quality).toBe('high');
   });
 
+  it('accepts customer provider credentials on a generation request', () => {
+    const result = imageGenerationRequestSchema.parse({
+      prompt: 'a neon fox',
+      model: 'gpt-image-2',
+      size: '1024x1024',
+      n: 1,
+      provider: {
+        baseUrl: 'https://api.example.com/v1/images/generations',
+        apiKey: 'sk-customer'
+      }
+    });
+
+    expect(result.provider).toEqual({
+      baseUrl: 'https://api.example.com/v1/images/generations',
+      apiKey: 'sk-customer'
+    });
+  });
+
+  it('rejects provider endpoints that are not HTTP or HTTPS', () => {
+    expect(() =>
+      imageGenerationRequestSchema.parse({
+        prompt: 'a neon fox',
+        model: 'gpt-image-2',
+        size: '1024x1024',
+        n: 1,
+        provider: {
+          baseUrl: 'file:///etc/passwd',
+          apiKey: 'sk-customer'
+        }
+      })
+    ).toThrow();
+  });
+
   it('rejects malformed sizes', () => {
     expect(() =>
       imageGenerationRequestSchema.parse({
@@ -158,6 +191,7 @@ describe('apiSettingsSchema', () => {
     });
 
     expect(parsed.maxParallelImageJobs).toBe(6);
+    expect('apiKey' in parsed).toBe(false);
   });
 });
 

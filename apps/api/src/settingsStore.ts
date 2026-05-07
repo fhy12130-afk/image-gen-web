@@ -6,7 +6,6 @@ import { normalizeBaseUrl } from './config.js';
 
 export type StoredApiSettings = {
   baseUrl?: string;
-  apiKey?: string;
   defaultModel?: string;
   maxParallelImageJobs?: number;
 };
@@ -16,10 +15,6 @@ export type SettingsStore = ReturnType<typeof createSettingsStore>;
 export function applyStoredSettings(config: ApiConfig, settings: StoredApiSettings): ApiConfig {
   if (typeof settings.baseUrl === 'string') {
     config.baseUrl = settings.baseUrl ? normalizeBaseUrl(settings.baseUrl) : '';
-  }
-
-  if (typeof settings.apiKey === 'string') {
-    config.apiKey = settings.apiKey;
   }
 
   if (typeof settings.defaultModel === 'string' && settings.defaultModel.trim()) {
@@ -38,10 +33,6 @@ export function applySettingsUpdate(config: ApiConfig, update: ApiSettingsUpdate
     config.baseUrl = update.baseUrl ? normalizeBaseUrl(update.baseUrl) : '';
   }
 
-  if ('apiKey' in update && typeof update.apiKey === 'string' && update.apiKey.trim()) {
-    config.apiKey = update.apiKey.trim();
-  }
-
   if (update.defaultModel) {
     config.defaultModel = update.defaultModel;
   }
@@ -56,7 +47,6 @@ export function applySettingsUpdate(config: ApiConfig, update: ApiSettingsUpdate
 export function toStoredSettings(config: ApiConfig): StoredApiSettings {
   return {
     baseUrl: config.baseUrl,
-    apiKey: config.apiKey,
     defaultModel: config.defaultModel,
     maxParallelImageJobs: config.maxParallelImageJobs
   };

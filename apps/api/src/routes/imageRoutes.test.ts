@@ -91,8 +91,7 @@ describe('API routes', () => {
     ]);
   });
 
-  it('updates runtime settings and does not expose the full API key', async () => {
-    let savedSettings: unknown;
+  it('keeps server settings read-only for public users', async () => {
     const app = buildApp({
       config: {
         apiPort: 8700,
@@ -109,15 +108,7 @@ describe('API routes', () => {
         generate: async () => [{ url: 'https://cdn.example.com/a.png', b64Json: null }],
         edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
       },
-      historyStore: createHistoryStoreStub(),
-      settingsStore: {
-        async loadSettings() {
-          return {};
-        },
-        async saveSettings(settings) {
-          savedSettings = settings;
-        }
-      }
+      historyStore: createHistoryStoreStub()
     });
 
     const updated = await app.inject({
@@ -130,17 +121,8 @@ describe('API routes', () => {
       }
     });
 
-    expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({
-      baseUrl: 'https://api.example.com/v1',
-      hasApiKey: true,
-      maxParallelImageJobs: 4
-    });
+    expect(updated.statusCode).toBe(403);
     expect(JSON.stringify(updated.json())).not.toContain('sk-test-secret');
-    expect(savedSettings).toMatchObject({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test-secret', maxParallelImageJobs: 4 });
-
-    const jobs = await app.inject({ method: 'GET', url: '/api/jobs' });
-    expect(jobs.json().maxParallel).toBe(4);
   });
 
   it('returns a clear error when provider settings are missing', async () => {
@@ -171,6 +153,89 @@ describe('API routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error.code).toBe('CONFIG_MISSING');
+  });
+
+  it('uses per-request provider credentials without requiring server keys', async () => {
+    let receivedProvider: unknown;
+    const app = buildApp({
+      config: {
+        apiPort: 8700,
+        baseUrl: '',
+        apiKey: '',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 2,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
+      },
+      provider: {
+        generate: async (_request, provider) => {
+          receivedProvider = provider;
+          return [{ url: 'https://cdn.example.com/a.png', b64Json: null }];
+        },
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub()
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/image/generate',
+      payload: {
+        prompt: 'a customer fox',
+        model: 'gptimage2',
+        size: '1024x1024',
+        quality: 'high',
+        n: 1,
+        provider: { baseUrl: 'https://api.customer.example.com/v1/images/generations', apiKey: 'sk-customer-secret' }
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedProvider).toEqual({ baseUrl: 'https://api.customer.example.com/v1', apiKey: 'sk-customer-secret' });
+    expect(JSON.stringify(response.json())).not.toContain('sk-customer-secret');
+  });
+
+  it('uses the server provider URL when the request only supplies an API key', async () => {
+    let receivedProvider: unknown;
+    const app = buildApp({
+      config: {
+        apiPort: 8700,
+        baseUrl: 'https://api.example.com/v1/images/generations',
+        apiKey: '',
+        defaultModel: 'gptimage2',
+        webOrigin: 'http://localhost:5173',
+        imageApiTimeoutMs: 900000,
+        maxParallelImageJobs: 2,
+        maxQueuedImageJobs: 30,
+        maxStoredImageJobs: 100
+      },
+      provider: {
+        generate: async (_request, provider) => {
+          receivedProvider = provider;
+          return [{ url: 'https://cdn.example.com/a.png', b64Json: null }];
+        },
+        edit: async () => [{ url: 'https://cdn.example.com/b.png', b64Json: null }]
+      },
+      historyStore: createHistoryStoreStub()
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/image/generate',
+      payload: {
+        prompt: 'a customer fox',
+        model: 'gptimage2',
+        size: '1024x1024',
+        quality: 'high',
+        n: 1,
+        provider: { apiKey: 'sk-customer-secret' }
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedProvider).toEqual({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-customer-secret' });
   });
 
   it('rejects new queued work when the active job limit is reached', async () => {
@@ -468,7 +533,7 @@ describe('API routes', () => {
         maxStoredImageJobs: 100
       },
       provider: {
-        generate: async (_request, signal) => {
+        generate: async (_request, _provider, signal) => {
           receivedSignal = signal;
           await new Promise((_resolve, reject) => {
             signal?.addEventListener('abort', () => reject(new Error('provider aborted')), { once: true });

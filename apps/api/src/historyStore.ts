@@ -9,6 +9,7 @@ type HistoryStoreOptions = {
 };
 
 type SaveGenerationInput = {
+  clientId?: string;
   mode: 'text' | 'image';
   prompt: string;
   model: string;
@@ -97,6 +98,7 @@ export function createHistoryStore(options: HistoryStoreOptions) {
       const record: ImageHistoryRecord = {
         id: `hist_${randomUUID().replaceAll('-', '')}`,
         createdAt: new Date().toISOString(),
+        clientId: input.clientId,
         mode: input.mode,
         prompt: input.prompt,
         model: input.model,
@@ -110,12 +112,22 @@ export function createHistoryStore(options: HistoryStoreOptions) {
       return record;
     },
 
-    async listHistory(): Promise<ImageHistoryRecord[]> {
-      return readHistory();
+    async listHistory(clientId?: string): Promise<ImageHistoryRecord[]> {
+      const records = await readHistory();
+      return clientId ? records.filter((record) => record.clientId === clientId) : records;
     },
 
-    async clearHistory(): Promise<void> {
+    async clearHistory(clientId?: string): Promise<void> {
       await ensureDataDir();
+      if (clientId) {
+        const records = await readHistory();
+        const removedRecords = records.filter((record) => record.clientId === clientId);
+        const retainedRecords = records.filter((record) => record.clientId !== clientId);
+        await Promise.all(removedRecords.flatMap((record) => record.images.map((image) => rm(join(generatedDir, image.fileName), { force: true }))));
+        await writeHistory(retainedRecords);
+        return;
+      }
+
       const files = await readdir(generatedDir).catch(() => []);
       await Promise.all(files.map((file) => rm(join(generatedDir, file), { force: true })));
       await writeHistory([]);

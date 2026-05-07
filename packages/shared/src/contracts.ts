@@ -59,19 +59,53 @@ export const imageSizeSchema = z.string().min(3).superRefine((value, context) =>
 
 export const imageQualitySchema = z.enum(IMAGE_QUALITY_OPTIONS);
 
+export const providerCredentialsSchema = z.object({
+  baseUrl: z.string().trim().optional().superRefine((value, context) => {
+    if (!value) {
+      return;
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Provider endpoint URL is invalid' });
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Provider endpoint URL must use HTTP or HTTPS' });
+    }
+
+    if (parsed.username || parsed.password) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Provider endpoint URL must not include credentials' });
+    }
+  }),
+  apiKey: z.string().trim().min(1, 'Provider API key is required')
+});
+
+export const clientJobSettingsSchema = z.object({
+  id: z.string().trim().min(1, 'Client ID is required').max(128, 'Client ID is too long'),
+  maxParallelJobs: z.number().int().min(1).max(20).default(2)
+});
+
 export const imageGenerationRequestSchema = z.object({
   prompt: z.string().trim().min(1, 'Prompt is required'),
   model: z.string().trim().min(1, 'Model is required'),
   size: imageSizeSchema,
   quality: imageQualitySchema.default(DEFAULT_IMAGE_QUALITY),
-  n: z.number().int().min(1).max(4).default(1)
+  n: z.number().int().min(1).max(4).default(1),
+  provider: providerCredentialsSchema.optional(),
+  client: clientJobSettingsSchema.optional()
 });
 
 export const imageEditFieldsSchema = z.object({
   prompt: z.string().trim().min(1, 'Prompt is required'),
   model: z.string().trim().min(1, 'Model is required'),
   size: imageSizeSchema,
-  quality: imageQualitySchema.default(DEFAULT_IMAGE_QUALITY)
+  quality: imageQualitySchema.default(DEFAULT_IMAGE_QUALITY),
+  provider: providerCredentialsSchema.optional(),
+  client: clientJobSettingsSchema.optional()
 });
 
 export const generatedImageSchema = z.object({
@@ -94,6 +128,7 @@ export const imageHistoryImageSchema = z.object({
 export const imageHistoryRecordSchema = z.object({
   id: z.string().min(1),
   createdAt: z.string().datetime(),
+  clientId: z.string().optional(),
   mode: imageHistoryModeSchema,
   prompt: z.string().min(1),
   model: z.string().min(1),
@@ -151,6 +186,7 @@ export const publicConfigSchema = z.object({
   defaultQuality: imageQualitySchema,
   qualities: z.array(imageQualitySchema).min(1),
   maxParallelImageJobs: z.number().int().positive().default(2),
+  maxUserParallelImageJobs: z.number().int().positive().default(20),
   supportsImageEdit: z.boolean()
 });
 
@@ -164,9 +200,13 @@ export const apiSettingsResponseSchema = z.object({
 
 export const apiSettingsUpdateSchema = z.object({
   baseUrl: z.string().trim().optional(),
-  apiKey: z.string().optional(),
   defaultModel: z.string().trim().min(1).optional(),
   maxParallelImageJobs: z.number().int().min(1).max(20).optional()
+});
+
+export const imageJobRetryRequestSchema = z.object({
+  provider: providerCredentialsSchema.optional(),
+  client: clientJobSettingsSchema.optional()
 });
 
 export const apiErrorCodeSchema = z.enum([
@@ -188,6 +228,8 @@ export const apiErrorResponseSchema = z.object({
 export type ImageGenerationRequest = z.infer<typeof imageGenerationRequestSchema>;
 export type ImageEditFields = z.infer<typeof imageEditFieldsSchema>;
 export type ImageQuality = z.infer<typeof imageQualitySchema>;
+export type ProviderCredentials = z.infer<typeof providerCredentialsSchema>;
+export type ClientJobSettings = z.infer<typeof clientJobSettingsSchema>;
 export type GeneratedImage = z.infer<typeof generatedImageSchema>;
 export type ImageHistoryImage = z.infer<typeof imageHistoryImageSchema>;
 export type ImageHistoryRecord = z.infer<typeof imageHistoryRecordSchema>;
@@ -200,5 +242,6 @@ export type ImageResponse = z.infer<typeof imageResponseSchema>;
 export type PublicConfig = z.infer<typeof publicConfigSchema>;
 export type ApiSettingsResponse = z.infer<typeof apiSettingsResponseSchema>;
 export type ApiSettingsUpdate = z.infer<typeof apiSettingsUpdateSchema>;
+export type ImageJobRetryRequest = z.infer<typeof imageJobRetryRequestSchema>;
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;

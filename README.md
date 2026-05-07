@@ -1,115 +1,199 @@
 # Image Gen Web
 
-一个前后端分离的图片生成 Web 应用，用来连接 OpenAI 兼容的图片生成接口。它把 provider API Key 保存在服务端，浏览器只和本地 API 通信，适合自用部署、团队内网使用，也适合作为二次开发的开源基础项目。
+一个面向多人使用的 OpenAI 兼容图片生成网页。用户打开网页后可以填写自己的 API Key，也可以使用站点默认的上游接口地址；每个浏览器用户都有独立的 client id 和并发设置，服务端再用全局队列统一控流。
 
-## 功能特性
+这个版本适合把网页直接部署到服务器上公开访问：前台给用户生图，后台单独跑在管理端口，用来查看 24 小时、7 天、30 天调用统计，检查成功/失败日志，并调整全局并发。
 
-- 支持文生图，对应 OpenAI 兼容接口 `/images/generations`。
-- 支持图生图和图片编辑，对应 OpenAI 兼容接口 `/images/edits`。
-- 支持一次上传最多 10 张参考图。
-- 浏览器端会先压缩参考图，降低上传体积和失败率。
-- 支持 `auto`、1K、2K、4K 等常用尺寸预设。
-- 支持自定义 `WIDTHxHEIGHT` 尺寸，并在前后端统一校验。
-- 支持 `low`、`medium`、`high` 质量选项。
-- 服务端图片任务队列，支持配置并发数和临时 provider 错误重试。
-- 本地生成历史，支持预览、恢复参数、下载图片和清空记录。
-- 内置 MCP stdio server，方便 Codex、Claude Desktop 等本地 AI 客户端调用。
-- 支持 Docker 一条命令启动。
-- API Key 只保存在服务端，不暴露给浏览器。
+## 主要功能
+
+- 文生图：调用 OpenAI 兼容的 `/images/generations`。
+- 图生图/图片编辑：调用 OpenAI 兼容的 `/images/edits`。
+- BYOK：用户在网页里填写自己的 API Key，服务端不会要求全局必须配置 Key。
+- 默认上游地址：站点可配置默认 `IMAGE_API_BASE_URL`，用户也可以自己覆盖上游地址。
+- 多人并发：每个用户可调整自己的并发数，服务端还有全局并发上限。
+- 任务队列：支持排队、运行、成功、失败、取消和失败重试。
+- 历史记录：成功图片会保存到服务端本地，支持预览、恢复参数和下载。
+- 管理后台：独立端口，Basic Auth 保护，可查看统计、日志、错误和队列状态。
+- 关键日志：只保存生图请求、成功、失败三类日志；API Key、Authorization、token、secret、password 会脱敏。
+- 日志保留：本地 JSONL 日志自动清理 7 天以前的数据。
+- Docker 部署：一个容器同时托管前端静态文件、API 和管理后台。
+- MCP Server：保留本地 MCP stdio server，方便 Codex、Claude Desktop 等客户端调用本地 API。
 
 ## 项目结构
 
 ```text
-apps/web           React + Vite 前端
-apps/api           Fastify API 服务
-apps/mcp           MCP stdio server，调用本地 API
-packages/shared    前后端和 MCP 共用的 TypeScript 协议
-docs/plans         设计和实现记录
-scripts            启动脚本相关测试
+apps/web            React + Vite 前端
+apps/api            Fastify API、任务队列、管理后台、日志存储
+apps/mcp            MCP stdio server
+packages/shared     前后端和 MCP 共享的 TypeScript 协议
+docs/plans          设计和实现记录
+scripts             启动脚本测试
 ```
 
-## Docker 启动
+## 快速部署
 
-Docker 镜像使用生产模式：先构建前端和 API，再只运行一个 Node API 进程。API 会直接托管前端静态文件，不会在服务器里启动 Vite dev server 或 tsx watch。
-
-在项目根目录执行：
-
-```powershell
-copy .env.example .env
-notepad .env
-docker compose up --build -d
-```
-
-服务地址默认是：
-
-```text
-Web + API: http://localhost:8700
-```
-
-如果要改宿主机端口，可以在 `.env` 中设置：
-
-```env
-WEB_PORT=3000
-```
-
-然后访问 `http://localhost:3000`。生成历史、网页设置和本地保存的图片会持久化到 Docker volume：
-
-```text
-image-gen-web_api-data
-```
-
-如果 Docker 无法从 Docker Hub 拉取 `node:20-bookworm-slim`，可以在 `.env` 里把 `DOCKER_NODE_IMAGE` 改成你信任的 Node 20 镜像源，例如：
-
-```env
-DOCKER_NODE_IMAGE=docker.m.daocloud.io/library/node:20-bookworm-slim
-```
-
-然后重新运行 Docker 启动命令。
-
-## 本地启动
-
-不使用 Docker 时，可以直接用 pnpm 启动：
+先复制环境变量文件：
 
 ```bash
-npx pnpm@9.15.4 install
-npx pnpm@9.15.4 dev
+cp .env.example .env
 ```
 
-Windows 一键启动脚本：
-
-```text
-start.bat
-start.ps1
-```
-
-## 环境变量
-
-调用真实 provider 前，请先复制并编辑 `.env`：
+编辑 `.env`，至少建议配置：
 
 ```env
 IMAGE_API_BASE_URL=https://your-image-api.example.com/v1
-IMAGE_API_KEY=sk-xxxx
-DEFAULT_IMAGE_MODEL=gptimage2
-IMAGE_API_COMPAT=openai
+IMAGE_API_KEY=
+DEFAULT_IMAGE_MODEL=gpt-image-2
+MAX_PARALLEL_IMAGE_JOBS=20
+MAX_USER_PARALLEL_IMAGE_JOBS=20
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+```
+
+然后启动：
+
+```bash
+docker compose -f compose.server.yml up -d --build
+```
+
+默认端口：
+
+```text
+前台 Web + API: http://localhost:8700
+管理后台:       http://localhost:8850
+```
+
+`compose.server.yml` 默认把前台端口绑定在 `127.0.0.1:8700`，适合前面放 Caddy、Nginx 之类的反代；管理后台 `8850` 默认对外开放，但有 Basic Auth。生产环境请务必设置强密码，必要时再用防火墙限制访问来源。
+
+## 用户使用方式
+
+前台网页会默认使用服务端配置的 `IMAGE_API_BASE_URL`。用户只需要填自己的 API Key、模型、提示词和图片参数即可发起生图。
+
+如果用户有自己的兼容接口地址，也可以在网页里覆盖上游 URL。服务端会把请求转发到：
+
+```text
+{baseUrl}/images/generations
+{baseUrl}/images/edits
+```
+
+用户侧并发由浏览器里的 client 设置控制，服务端会同时受全局并发限制保护。
+
+## 管理后台
+
+管理后台地址由 `ADMIN_PORT` 控制，默认是 `8850`。登录使用：
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+```
+
+后台可以查看：
+
+- 24 小时、7 天、30 天请求数、成功数、失败数。
+- 当前全局并发、队列数量、运行数量。
+- 最近日志和错误列表。
+- 每条日志的 request id、client id、模型、尺寸、质量、耗时、错误信息。
+- 前端提交的请求体。
+- 转发到上游的请求体。
+- 上游返回的响应内容。
+- 全局并发上限调整。
+
+## 日志策略
+
+日志文件保存在 Docker volume 里：
+
+```text
+/app/apps/api/data/telemetry.jsonl
+```
+
+如果使用默认 compose，在宿主机上通常对应：
+
+```text
+/var/lib/docker/volumes/image-gen-web-data/_data/telemetry.jsonl
+```
+
+只会持久化三类事件：
+
+- `image.request`
+- `image.success`
+- `image.failure`
+
+不会保存普通 HTTP 请求、轮询、队列开始/取消等杂项日志。日志写入时会自动脱敏这些字段：
+
+```text
+authorization
+apiKey
+token
+secret
+password
+```
+
+日志最多保留 7 天。因为本地只保留 7 天数据，管理后台里的 30 天统计在默认配置下也只能统计现存日志。
+
+## 环境变量
+
+常用变量：
+
+```env
+IMAGE_API_BASE_URL=https://your-image-api.example.com/v1
+IMAGE_API_KEY=
+DEFAULT_IMAGE_MODEL=gpt-image-2
 IMAGE_API_TIMEOUT_MS=900000
 IMAGE_API_MAX_RETRIES=2
 IMAGE_API_RETRY_DELAY_MS=8000
-MAX_PARALLEL_IMAGE_JOBS=2
+
+MAX_PARALLEL_IMAGE_JOBS=20
+MAX_USER_PARALLEL_IMAGE_JOBS=20
 MAX_QUEUED_IMAGE_JOBS=30
 MAX_STORED_IMAGE_JOBS=100
+
 API_PORT=8700
+ADMIN_PORT=8850
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+
 WEB_ORIGIN=http://localhost:5173
 IMAGE_GEN_API_URL=http://localhost:8700
+DOCKER_NODE_IMAGE=node:20-bookworm-slim
 ```
 
-`IMAGE_API_BASE_URL` 填基础 API 地址即可，不要把 API Key 写进前端代码。下面两种写法都会被服务端归一化：
+说明：
 
-```env
-IMAGE_API_BASE_URL=https://www.example.com/v1
-IMAGE_API_BASE_URL=https://www.example.com/v1/images/generations
+- `IMAGE_API_BASE_URL` 是默认上游地址，用户不填自定义 URL 时会使用它。
+- `IMAGE_API_KEY` 可以留空，让用户在网页里填写自己的 Key。
+- `MAX_PARALLEL_IMAGE_JOBS` 是服务端全局并发。
+- `MAX_USER_PARALLEL_IMAGE_JOBS` 是单个用户可设置的并发上限。
+- `IMAGE_API_MAX_RETRIES` 和 `IMAGE_API_RETRY_DELAY_MS` 用于临时网络错误、429、5xx 等重试。
+
+## 本地开发
+
+安装依赖：
+
+```bash
+npx pnpm@9.15.4 install
 ```
 
-## 图片尺寸
+启动开发服务：
+
+```bash
+npx pnpm@9.15.4 dev
+```
+
+构建：
+
+```bash
+npx pnpm@9.15.4 build
+```
+
+测试：
+
+```bash
+npx pnpm@9.15.4 --filter @image-gen-web/shared test
+npx pnpm@9.15.4 --filter @image-gen-web/api test
+npx pnpm@9.15.4 --filter @image-gen-web/web test
+```
+
+## 图片参数
 
 内置尺寸：
 
@@ -122,96 +206,28 @@ IMAGE_API_BASE_URL=https://www.example.com/v1/images/generations
 - `3840x2160`
 - `2160x3840`
 
-自定义尺寸规则：
-
-- 必须使用 `WIDTHxHEIGHT` 格式。
-- 宽和高都不能超过 `3840`。
-- 宽和高都必须是 `16` 的倍数。
-- 长宽比不能超过 `3:1`。
-- 总像素必须在 `655360` 到 `8294400` 之间。
-
-## 图片质量
-
-前端和 API 都支持以下质量：
+质量选项：
 
 - `low`
 - `medium`
 - `high`
 
-默认值是 `medium`。文生图和图生图请求都会把该值作为 `quality` 传给 provider。
+自定义尺寸需要满足：
 
-## 并发任务
-
-前端提交图片请求后，任务会进入服务端内存队列。你可以继续添加提示词，旧任务会按队列状态展示为：
-
-- `queued`
-- `running`
-- `succeeded`
-- `failed`
-
-默认并发数是 `2`：
-
-```env
-MAX_PARALLEL_IMAGE_JOBS=2
-```
-
-为了避免服务器内存无序增长，可以限制等待/运行中的任务数量，以及 API 内存里保留的任务记录数量：
-
-```env
-MAX_QUEUED_IMAGE_JOBS=30
-MAX_STORED_IMAGE_JOBS=100
-```
-
-如果你的 provider 可以承受更高并发，可以把它调到 `5` 或更高。网络瞬断、HTTP `429`、HTTP `5xx` 等临时错误会自动重试：
-
-```env
-IMAGE_API_MAX_RETRIES=2
-IMAGE_API_RETRY_DELAY_MS=8000
-```
-
-失败的内存任务在 API 服务仍运行时可以直接点击 `Retry` 重试。清空完成任务不会删除已保存的历史图片。
-
-## 生成历史
-
-API 会把成功生成的图片保存到本地：
-
-```text
-apps/api/data/generated
-apps/api/data/history.json
-```
-
-历史接口：
-
-- `GET /api/history`
-- `DELETE /api/history`
-- `GET /api/history/image/:fileName`
-- `GET /api/history/image/:fileName?download=1`
+- `WIDTHxHEIGHT` 格式。
+- 宽和高都不超过 `3840`。
+- 宽和高都是 `16` 的倍数。
+- 长宽比不超过 `3:1`。
+- 总像素在 `655360` 到 `8294400` 之间。
 
 ## MCP Server
 
-MCP 服务只调用本地 API，不接收也不知道 provider API Key。
-
-构建并启动：
+构建并启动 MCP：
 
 ```bash
 npx pnpm@9.15.4 --filter @image-gen-web/mcp build
 npx pnpm@9.15.4 --filter @image-gen-web/mcp start
 ```
-
-可用 MCP 工具：
-
-- `generate_image`
-- `edit_image`
-- `queue_image_generation`
-- `queue_image_edit`
-- `list_image_jobs`
-- `get_image_job`
-- `retry_image_job`
-- `list_image_history`
-- `get_image_history_item`
-- `get_image_generation_help`
-
-如果要从 Codex 或其他 MCP 客户端并行生成图片，推荐优先使用 `queue_image_generation` 或 `queue_image_edit`，再用 `list_image_jobs` 或 `get_image_job` 轮询直到任务变成 `succeeded`。完成后的 job 会包含保存后的图片 URL 和下载 URL。
 
 MCP 客户端配置示例：
 
@@ -229,41 +245,10 @@ MCP 客户端配置示例：
 }
 ```
 
-请把 `args` 中的路径替换成你本机实际路径。
+## 安全提醒
 
-## 常用脚本
-
-- `pnpm dev`：启动 Web 和 API。
-- `pnpm mcp:dev`：从源码启动 MCP server。
-- `pnpm mcp:start`：启动构建后的 MCP server。
-- `pnpm typecheck`：检查 TypeScript 类型。
-- `pnpm test`：运行测试。
-- `pnpm build`：构建所有 workspace 包。
-
-## 开源发布前检查
-
-推荐在提交或发布前运行：
-
-```bash
-npx pnpm@9.15.4 test
-npx pnpm@9.15.4 typecheck
-npx pnpm@9.15.4 build
-```
-
-## 安全说明
-
-- 不要提交 `.env`，只提交 `.env.example`。
-- 不要把 provider API Key 写入前端代码。
-- 生产环境建议把 API 放在反向代理后，并按需限制访问来源。
-- 本项目默认把生成图片保存在本地文件系统，请根据实际部署环境做好磁盘容量和备份策略。
-
-## 常见问题
-
-- 页面提示无法加载配置：确认 API 服务正在 `http://localhost:8700` 运行。
-- provider 请求失败：检查 `IMAGE_API_BASE_URL`、`IMAGE_API_KEY` 和 `DEFAULT_IMAGE_MODEL`。
-- 图生图失败：确认 provider 支持 `/images/edits` 和 multipart 图片上传。
-- Docker 启动后生成失败：执行 `docker compose logs -f` 查看 provider 错误。
-
-## 许可证
-
-本项目基于 [MIT License](LICENSE) 开源。
+- 不要提交 `.env`。
+- 不要把真实 API Key 写进 README、前端代码或测试文件。
+- 管理后台必须设置强密码。
+- 如果管理后台暴露在公网，建议再加防火墙或反向代理访问控制。
+- 日志会记录请求体和上游响应，适合排查问题；如果面向大量外部用户，应提前告知用户日志策略。

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ApiSettingsResponse, ImageHistoryRecord, ImageJobRecord, ImageQuality, PublicConfig } from '@image-gen-web/shared';
+import type { ApiSettingsResponse, ClientJobSettings, ImageHistoryRecord, ImageJobRecord, ImageQuality, ProviderCredentials, PublicConfig } from '@image-gen-web/shared';
 import {
   cancelImageJob,
   clearFinishedJobs,
@@ -10,12 +10,10 @@ import {
   fetchSettings,
   queueImageEdit,
   queueImageGeneration,
-  retryImageJob,
-  updateSettings
+  retryImageJob
 } from './api';
 import { compressImageFile, formatBytes, type ImageCompressionRecord } from './imageCompression';
-
-type Mode = 'text' | 'image';
+import { getInitialLanguage, localeFor, nextLanguage, persistLanguage, translations, type Language, type Mode } from './i18n';
 
 const fallbackConfig: PublicConfig = {
   defaultModel: 'gptimage2',
@@ -24,10 +22,16 @@ const fallbackConfig: PublicConfig = {
   defaultQuality: 'medium',
   qualities: ['low', 'medium', 'high'],
   maxParallelImageJobs: 2,
+  maxUserParallelImageJobs: 20,
   supportsImageEdit: true
 };
 
+const CLIENT_PROVIDER_SETTINGS_KEY = 'image-gen-web-client-provider';
+const CLIENT_ID_KEY = 'image-gen-web-client-id';
+type SettingsFormState = { baseUrl: string; apiKey: string; maxParallelImageJobs: string };
+
 export default function App() {
+  const [language, setLanguage] = useState<Language>(() => getInitialLanguage());
   const [mode, setMode] = useState<Mode>('text');
   const [config, setConfig] = useState<PublicConfig>(fallbackConfig);
   const [prompt, setPrompt] = useState('');
@@ -38,17 +42,15 @@ export default function App() {
   const [images, setImages] = useState<ImageCompressionRecord[]>([]);
   const [jobs, setJobs] = useState<ImageJobRecord[]>([]);
   const [historyRecords, setHistoryRecords] = useState<ImageHistoryRecord[]>([]);
-  const [settingsForm, setSettingsForm] = useState({
-    baseUrl: '',
-    apiKey: '',
-    maxParallelImageJobs: String(fallbackConfig.maxParallelImageJobs)
-  });
-  const [settingsStatus, setSettingsStatus] = useState<ApiSettingsResponse | null>(null);
+  const [settingsForm, setSettingsForm] = useState<SettingsFormState>(() => loadClientProviderSettings());
+  const [clientId] = useState(() => loadClientId());
+  const [serverBaseUrl, setServerBaseUrl] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [isQueuing, setIsQueuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = translations[language];
 
   useEffect(() => {
     fetchPublicConfig()
@@ -64,7 +66,7 @@ export default function App() {
         setSize(normalizedConfig.defaultSize || normalizedConfig.sizes[0] || fallbackConfig.defaultSize);
         setQuality(normalizedConfig.defaultQuality || fallbackConfig.defaultQuality);
       })
-      .catch(() => setError('Unable to load API config. Check whether the API server is running.'));
+      .catch(() => setError(translations[getInitialLanguage()].configLoadFailed));
 
     void loadHistory();
     void loadJobs();
@@ -76,9 +78,15 @@ export default function App() {
     return () => window.clearInterval(intervalId);
   }, []);
 
+  useEffect(() => {
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+    document.title = t.documentTitle;
+    persistLanguage(language);
+  }, [language, t.documentTitle]);
+
   async function loadHistory() {
     try {
-      const history = await fetchHistory();
+      const history = await fetchHistory(clientId);
       setHistoryRecords(Array.isArray(history.records) ? history.records : []);
     } catch {
       setHistoryRecords([]);
@@ -87,33 +95,45 @@ export default function App() {
 
   async function loadSettings() {
     try {
-      applySettings(await fetchSettings());
+      applyServerSettings(await fetchSettings());
     } catch {
       // Settings are optional for older API servers; generation errors still surface normally.
     }
   }
 
-  function applySettings(settings: ApiSettingsResponse) {
-    setSettingsStatus(settings);
-    setSettingsForm({
-      baseUrl: settings.baseUrl,
-      apiKey: '',
-      maxParallelImageJobs: String(settings.maxParallelImageJobs)
-    });
+  function applyServerSettings(settings: ApiSettingsResponse) {
+    const defaultBaseUrl = typeof settings.baseUrl === 'string' ? settings.baseUrl : '';
+    setServerBaseUrl(defaultBaseUrl);
+    setSettingsForm((current) => ({
+      ...current,
+      maxParallelImageJobs: current.maxParallelImageJobs || String(config.maxUserParallelImageJobs || settings.maxParallelImageJobs)
+    }));
     setConfig((currentConfig) => ({
       ...currentConfig,
-      defaultModel: settings.defaultModel,
-      maxParallelImageJobs: settings.maxParallelImageJobs
+      defaultModel: settings.defaultModel || currentConfig.defaultModel
     }));
   }
 
   async function loadJobs() {
     try {
-      const response = await fetchJobs();
+      const response = await fetchJobs(clientId);
       setJobs(Array.isArray(response.jobs) ? response.jobs : []);
     } catch {
       // The history list still works even if the transient job queue is unavailable.
     }
+  }
+
+  function getProviderCredentials(): ProviderCredentials | null {
+    const baseUrl = settingsForm.baseUrl.trim();
+    const apiKey = settingsForm.apiKey.trim();
+    return apiKey ? { ...(baseUrl ? { baseUrl } : {}), apiKey } : null;
+  }
+
+  function getClientSettings(): ClientJobSettings {
+    return {
+      id: clientId,
+      maxParallelJobs: clampParallelJobs(Number(settingsForm.maxParallelImageJobs), config.maxUserParallelImageJobs || config.maxParallelImageJobs)
+    };
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -121,28 +141,36 @@ export default function App() {
     setError(null);
 
     if (!prompt.trim()) {
-      setError('Prompt is required.');
+      setError(t.promptRequired);
       return;
     }
 
     if (mode === 'image' && images.length === 0) {
-      setError('At least one reference image is required for image-to-image.');
+      setError(t.referenceRequired);
+      return;
+    }
+
+    const provider = getProviderCredentials();
+    if (!provider) {
+      setError(t.providerCredentialsRequired);
+      setIsSettingsOpen(true);
       return;
     }
 
     setIsQueuing(true);
     try {
       const selectedSize = customSize.trim() || size;
+      const client = getClientSettings();
       const response =
         mode === 'text'
-          ? await queueImageGeneration({ prompt, model, size: selectedSize, quality, n: 1 })
-          : await queueImageEdit({ prompt, model, size: selectedSize, quality, images: images.map((image) => image.file) });
+          ? await queueImageGeneration({ prompt, model, size: selectedSize, quality, n: 1, provider, client })
+          : await queueImageEdit({ prompt, model, size: selectedSize, quality, images: images.map((image) => image.file), provider, client });
       if (!response.job) {
-        throw new Error('Image job response was missing job details.');
+        throw new Error(t.missingJobDetails);
       }
       setJobs((currentJobs) => [response.job, ...currentJobs.filter((job) => job.id !== response.job.id)]);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Image job could not be queued.');
+      setError(requestError instanceof Error ? requestError.message : t.queueFailed);
     } finally {
       setIsQueuing(false);
     }
@@ -151,12 +179,12 @@ export default function App() {
   async function handleClearHistory(): Promise<boolean> {
     setError(null);
     try {
-      const [historyResponse, jobsResponse] = await Promise.all([clearImageHistory(), clearFinishedJobs()]);
+      const [historyResponse, jobsResponse] = await Promise.all([clearImageHistory(clientId), clearFinishedJobs(clientId)]);
       setHistoryRecords(historyResponse.records);
       setJobs(jobsResponse.jobs);
       return true;
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to clear history.');
+      setError(requestError instanceof Error ? requestError.message : t.clearHistoryFailed);
       return false;
     }
   }
@@ -167,17 +195,29 @@ export default function App() {
     setError(null);
     setIsSavingSettings(true);
     try {
-      const payload = {
-        baseUrl: settingsForm.baseUrl,
-        ...(settingsForm.apiKey.trim() ? { apiKey: settingsForm.apiKey.trim() } : {}),
-        maxParallelImageJobs: Number(settingsForm.maxParallelImageJobs)
+      const maxParallelJobs = Number(settingsForm.maxParallelImageJobs);
+      const maxUserParallel = config.maxUserParallelImageJobs || config.maxParallelImageJobs;
+      if (!Number.isInteger(maxParallelJobs) || maxParallelJobs < 1 || maxParallelJobs > maxUserParallel) {
+        setSettingsMessage(t.settingsSaveFailed);
+        return;
+      }
+
+      const nextSettings: SettingsFormState = {
+        baseUrl: settingsForm.baseUrl.trim(),
+        apiKey: settingsForm.apiKey.trim(),
+        maxParallelImageJobs: String(maxParallelJobs)
       };
-      const nextSettings = await updateSettings(payload);
-      applySettings(nextSettings);
-      setModel(nextSettings.defaultModel);
-      setSettingsMessage('Settings saved.');
+
+      saveClientProviderSettings(nextSettings);
+      setSettingsForm((current) => ({
+        ...current,
+        baseUrl: nextSettings.baseUrl,
+        apiKey: nextSettings.apiKey,
+        maxParallelImageJobs: nextSettings.maxParallelImageJobs
+      }));
+      setSettingsMessage(t.settingsSaved);
     } catch (requestError) {
-      setSettingsMessage(requestError instanceof Error ? requestError.message : 'Unable to save settings.');
+      setSettingsMessage(requestError instanceof Error ? requestError.message : t.settingsSaveFailed);
     } finally {
       setIsSavingSettings(false);
     }
@@ -186,27 +226,34 @@ export default function App() {
   async function handleSettingsClearHistory() {
     setSettingsMessage(null);
     if (await handleClearHistory()) {
-      setSettingsMessage('History cleared.');
+      setSettingsMessage(t.historyCleared);
     }
   }
 
   async function handleRetryJob(job: ImageJobRecord) {
     setError(null);
     try {
-      const response = await retryImageJob(job.id);
+      const provider = getProviderCredentials();
+      if (!provider) {
+        setError(t.providerCredentialsRequired);
+        setIsSettingsOpen(true);
+        return;
+      }
+
+      const response = await retryImageJob(job.id, provider, getClientSettings());
       setJobs((currentJobs) => currentJobs.map((currentJob) => (currentJob.id === response.job.id ? response.job : currentJob)));
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to retry image job.');
+      setError(requestError instanceof Error ? requestError.message : t.retryFailed);
     }
   }
 
   async function handleCancelJob(job: ImageJobRecord) {
     setError(null);
     try {
-      const response = await cancelImageJob(job.id);
+      const response = await cancelImageJob(job.id, clientId);
       setJobs((currentJobs) => currentJobs.map((currentJob) => (currentJob.id === response.job.id ? response.job : currentJob)));
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to cancel image job.');
+      setError(requestError instanceof Error ? requestError.message : t.cancelFailed);
     }
   }
 
@@ -255,60 +302,67 @@ export default function App() {
     <main className="app-shell">
       <div className="top-actions">
         <button type="button" className="settings-button" onClick={() => setIsSettingsOpen(true)}>
-          Settings
+          {t.settingsButton}
+        </button>
+        <button
+          type="button"
+          className="settings-button"
+          aria-label={t.languageAriaLabel}
+          onClick={() => setLanguage((currentLanguage) => nextLanguage(currentLanguage))}
+        >
+          {t.languageButton}
         </button>
       </div>
 
       <section className="hero-panel">
         <p className="eyebrow">Image Gen Web</p>
-        <h1>Generate images through your own model endpoint</h1>
-        <p className="hero-copy">
-          Keep provider keys on the server, choose size and quality, upload reference images, and reuse saved history.
-        </p>
+        <h1>{t.heroTitle}</h1>
+        <p className="hero-copy">{t.heroCopy}</p>
       </section>
 
       {isSettingsOpen ? (
-        <section className="settings-panel" aria-label="Settings">
+        <section className="settings-panel" aria-label={t.settingsAriaLabel}>
           <div className="settings-header">
-            <h2>Settings</h2>
+            <h2>{t.settingsButton}</h2>
             <button type="button" className="text-button" onClick={() => setIsSettingsOpen(false)}>
-              Close
+              {t.close}
             </button>
           </div>
           <form className="settings-form" onSubmit={handleSaveSettings}>
             <label>
-              Endpoint URL
+              {t.endpointUrl}
               <input
                 value={settingsForm.baseUrl}
                 onChange={(event) => setSettingsForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                placeholder="https://your-image-api.example.com/v1"
+                placeholder={serverBaseUrl || 'https://your-image-api.example.com/v1'}
               />
             </label>
             <label>
-              API key
+              {t.apiKey}
               <input
                 type="password"
                 value={settingsForm.apiKey}
                 onChange={(event) => setSettingsForm((current) => ({ ...current, apiKey: event.target.value }))}
-                placeholder={settingsStatus?.hasApiKey ? `Saved ${settingsStatus.apiKeyPreview || ''}` : 'sk-...'}
+                placeholder={t.apiKeyPlaceholder}
+                autoComplete="off"
               />
             </label>
             <label>
-              Parallel jobs
+              {t.parallelJobs}
               <input
                 type="number"
                 min="1"
-                max="20"
+                max={config.maxUserParallelImageJobs || config.maxParallelImageJobs}
                 value={settingsForm.maxParallelImageJobs}
                 onChange={(event) => setSettingsForm((current) => ({ ...current, maxParallelImageJobs: event.target.value }))}
               />
             </label>
             <div className="settings-actions">
               <button className="submit-button" type="submit" disabled={isSavingSettings}>
-                {isSavingSettings ? 'Saving...' : 'Save settings'}
+                {isSavingSettings ? t.saving : t.saveSettings}
               </button>
               <button className="text-button" type="button" onClick={() => void handleSettingsClearHistory()}>
-                Clear history
+                {t.clearHistory}
               </button>
             </div>
             {settingsMessage ? <p className="settings-message">{settingsMessage}</p> : null}
@@ -318,31 +372,31 @@ export default function App() {
 
       <section className="workspace">
         <form className="control-card" onSubmit={handleSubmit}>
-          <div className="mode-switch" aria-label="Generation mode">
+          <div className="mode-switch" aria-label={t.generationModeAria}>
             <button type="button" className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>
-              Text to image
+              {t.textToImage}
             </button>
             <button type="button" className={mode === 'image' ? 'active' : ''} onClick={() => setMode('image')}>
-              Image to image
+              {t.imageToImage}
             </button>
           </div>
 
           <label>
-            Prompt
+            {t.prompt}
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="cinematic neon city portrait"
+              placeholder={t.promptPlaceholder}
             />
           </label>
 
           <label>
-            Model
+            {t.model}
             <input value={model} onChange={(event) => setModel(event.target.value)} />
           </label>
 
           <label>
-            Size
+            {t.size}
             <select value={size} onChange={(event) => setSize(event.target.value)}>
               {config.sizes.map((option) => (
                 <option key={option} value={option}>
@@ -353,16 +407,16 @@ export default function App() {
           </label>
 
           <label>
-            Custom size
-            <input value={customSize} onChange={(event) => setCustomSize(event.target.value)} placeholder="1280x720 or auto" />
+            {t.customSize}
+            <input value={customSize} onChange={(event) => setCustomSize(event.target.value)} placeholder={t.customSizePlaceholder} />
           </label>
 
           <label>
-            Quality
+            {t.quality}
             <select value={quality} onChange={(event) => setQuality(event.target.value as ImageQuality)}>
               {config.qualities.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {t.qualityLabels[option]}
                 </option>
               ))}
             </select>
@@ -371,7 +425,7 @@ export default function App() {
           {mode === 'image' ? (
             <div className="upload-group">
               <label>
-                Reference image
+                {t.referenceImage}
                 <input
                   type="file"
                   multiple
@@ -386,13 +440,16 @@ export default function App() {
                 />
               </label>
               {images.length > 0 ? (
-                <ul className="selected-files" aria-label="Selected reference images">
+                <ul className="selected-files" aria-label={t.selectedReferenceImagesAria}>
                   {images.map((selectedImage) => (
                     <li key={`${selectedImage.originalName}-${selectedImage.originalBytes}-${selectedImage.file.lastModified}`}>
                       <span>{selectedImage.originalName}</span>
                       <small>
-                        {formatBytes(selectedImage.originalBytes)} -&gt; {formatBytes(selectedImage.compressedBytes)} -{' '}
-                        {selectedImage.status}
+                        {t.fileCompressionLine(
+                          formatBytes(selectedImage.originalBytes),
+                          formatBytes(selectedImage.compressedBytes),
+                          t.compressionStatusLabels[selectedImage.status]
+                        )}
                       </small>
                     </li>
                   ))}
@@ -402,21 +459,18 @@ export default function App() {
           ) : null}
 
           <button className="submit-button" type="submit" disabled={isQueuing}>
-            {isQueuing ? 'Queueing...' : 'Queue image job'}
+            {isQueuing ? t.queueing : t.queueImageJob}
           </button>
 
           {error ? <p className="error-message">{error}</p> : null}
         </form>
 
-        <section className="result-card" aria-label="Generation jobs">
+        <section className="result-card" aria-label={t.generationJobsAria}>
           <div className="result-header">
-            <h2>Generation jobs</h2>
-            <span>
-              {visibleJobs.filter((job) => job.status === 'running').length} running /{' '}
-              {visibleJobs.filter((job) => job.status === 'queued').length} queued
-            </span>
+            <h2>{t.generationJobsTitle}</h2>
+            <span>{t.jobCounts(visibleJobs.filter((job) => job.status === 'running').length, visibleJobs.filter((job) => job.status === 'queued').length)}</span>
           </div>
-          {visibleJobs.length === 0 ? <p className="empty-state">Queued jobs will appear here immediately.</p> : null}
+          {visibleJobs.length === 0 ? <p className="empty-state">{t.queuedJobsEmpty}</p> : null}
           <div className="history-list">
             {visibleJobs.map((job) => (
               <article className={`history-item job-${job.status}`} key={job.id}>
@@ -424,34 +478,34 @@ export default function App() {
                   <img src={job.history.images[0].url} alt="" />
                 ) : (
                   <div className="job-thumb" aria-hidden="true">
-                    {job.status}
+                    {t.jobStatusLabels[job.status]}
                   </div>
                 )}
                 <div>
                   <h3>{job.prompt}</h3>
                   <p>
-                    {job.mode} - {job.model} - {job.size} - {job.quality}
+                    {formatRecordSummary(job.mode, job.model, job.size, job.quality, language)}
                   </p>
-                  <small>{formatJobStatus(job)}</small>
+                  <small>{formatJobStatus(job, language)}</small>
                   {job.error ? <p className="error-message">{job.error}</p> : null}
                   <div className="result-actions">
                     {job.history?.images.map((image, index) => (
                       <a key={image.id} href={image.downloadUrl} download>
-                        Download {job.history && job.history.images.length > 1 ? index + 1 : ''}
+                        {t.downloadImage(job.history && job.history.images.length > 1 ? index + 1 : undefined)}
                       </a>
                     ))}
                     {job.status === 'failed' ? (
                       <button type="button" onClick={() => void handleRetryJob(job)}>
-                        Retry
+                        {t.retry}
                       </button>
                     ) : null}
                     {job.status === 'queued' || job.status === 'running' ? (
                       <button type="button" onClick={() => void handleCancelJob(job)}>
-                        Cancel
+                        {t.cancel}
                       </button>
                     ) : null}
                     <button type="button" onClick={() => restoreJob(job)}>
-                      Restore
+                      {t.restore}
                     </button>
                   </div>
                 </div>
@@ -460,19 +514,19 @@ export default function App() {
           </div>
         </section>
 
-        <section className="history-panel" aria-label="Generation history">
+        <section className="history-panel" aria-label={t.historyAria}>
           <div className="result-header">
-            <h2>History</h2>
+            <h2>{t.historyTitle}</h2>
             <button
               className="text-button"
               type="button"
               onClick={handleClearHistory}
               disabled={historyRecords.length === 0 && jobs.length === 0}
             >
-              Clear finished
+              {t.clearFinished}
             </button>
           </div>
-          {savedHistoryRecords.length === 0 ? <p className="empty-state compact">Older saved generations will appear here.</p> : null}
+          {savedHistoryRecords.length === 0 ? <p className="empty-state compact">{t.olderHistoryEmpty}</p> : null}
           <div className="history-list">
             {savedHistoryRecords.map((record) => (
               <article className="history-item" key={record.id}>
@@ -480,20 +534,17 @@ export default function App() {
                 <div>
                   <h3>{record.prompt}</h3>
                   <p>
-                    {record.mode} - {record.model} - {record.size}
-                    {record.quality ? ` - ${record.quality}` : ''}
+                    {formatRecordSummary(record.mode, record.model, record.size, record.quality, language)}
                   </p>
-                  <small>
-                    {new Date(record.createdAt).toLocaleString()} - {record.durationMs} ms
-                  </small>
+                  <small>{t.historyTimestamp(new Date(record.createdAt).toLocaleString(localeFor(language)), record.durationMs)}</small>
                   <div className="result-actions">
                     {record.images.map((image, index) => (
                       <a key={image.id} href={image.downloadUrl} download>
-                        Download {record.images.length > 1 ? index + 1 : ''}
+                        {t.downloadImage(record.images.length > 1 ? index + 1 : undefined)}
                       </a>
                     ))}
                     <button type="button" onClick={() => restoreHistory(record)}>
-                      Restore
+                      {t.restore}
                     </button>
                   </div>
                 </div>
@@ -506,24 +557,30 @@ export default function App() {
   );
 }
 
-function formatJobStatus(job: ImageJobRecord): string {
+function formatRecordSummary(mode: Mode, model: string, size: string, quality: ImageQuality | undefined, language: Language): string {
+  const t = translations[language];
+  return [t.modeLabels[mode], model, size, quality ? t.qualityLabels[quality] : null].filter(Boolean).join(' - ');
+}
+
+function formatJobStatus(job: ImageJobRecord, language: Language): string {
+  const t = translations[language];
   if (job.status === 'queued') {
-    return `Queued at ${new Date(job.createdAt).toLocaleTimeString()}`;
+    return t.jobStatusLine.queued(new Date(job.createdAt).toLocaleTimeString(localeFor(language)));
   }
 
   if (job.status === 'running') {
-    return `Running since ${new Date(job.startedAt || job.updatedAt).toLocaleTimeString()}`;
+    return t.jobStatusLine.running(new Date(job.startedAt || job.updatedAt).toLocaleTimeString(localeFor(language)));
   }
 
   if (job.status === 'succeeded') {
-    return `Finished in ${job.durationMs ?? 0} ms`;
+    return t.jobStatusLine.succeeded(job.durationMs ?? 0);
   }
 
   if (job.status === 'canceled') {
-    return `Canceled at ${new Date(job.finishedAt || job.updatedAt).toLocaleTimeString()}`;
+    return t.jobStatusLine.canceled(new Date(job.finishedAt || job.updatedAt).toLocaleTimeString(localeFor(language)));
   }
 
-  return `Failed at ${new Date(job.finishedAt || job.updatedAt).toLocaleTimeString()}`;
+  return t.jobStatusLine.failed(new Date(job.finishedAt || job.updatedAt).toLocaleTimeString(localeFor(language)));
 }
 
 function mergeSelectedImages(currentImages: ImageCompressionRecord[], selectedFiles: ImageCompressionRecord[]): ImageCompressionRecord[] {
@@ -532,4 +589,60 @@ function mergeSelectedImages(currentImages: ImageCompressionRecord[], selectedFi
     byIdentity.set(`${image.originalName}-${image.originalBytes}-${image.file.lastModified}`, image);
   }
   return Array.from(byIdentity.values()).slice(0, 10);
+}
+
+function loadClientProviderSettings(): SettingsFormState {
+  if (typeof window === 'undefined') {
+    return { baseUrl: '', apiKey: '', maxParallelImageJobs: String(fallbackConfig.maxParallelImageJobs) };
+  }
+
+  try {
+    const storedSettings = JSON.parse(window.localStorage.getItem(CLIENT_PROVIDER_SETTINGS_KEY) || '{}') as Partial<SettingsFormState>;
+    return {
+      baseUrl: typeof storedSettings.baseUrl === 'string' ? storedSettings.baseUrl : '',
+      apiKey: typeof storedSettings.apiKey === 'string' ? storedSettings.apiKey : '',
+      maxParallelImageJobs:
+        typeof storedSettings.maxParallelImageJobs === 'string' ? storedSettings.maxParallelImageJobs : String(fallbackConfig.maxParallelImageJobs)
+    };
+  } catch {
+    return { baseUrl: '', apiKey: '', maxParallelImageJobs: String(fallbackConfig.maxParallelImageJobs) };
+  }
+}
+
+function saveClientProviderSettings(settings: SettingsFormState): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(
+    CLIENT_PROVIDER_SETTINGS_KEY,
+    JSON.stringify({ baseUrl: settings.baseUrl, apiKey: settings.apiKey, maxParallelImageJobs: settings.maxParallelImageJobs })
+  );
+}
+
+function loadClientId(): string {
+  if (typeof window === 'undefined') {
+    return 'server-rendered-client';
+  }
+
+  const existingClientId = window.localStorage.getItem(CLIENT_ID_KEY);
+  if (existingClientId) {
+    return existingClientId;
+  }
+
+  const randomId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().replaceAll('-', '')
+      : Math.random().toString(36).slice(2);
+  const nextClientId = `client_${randomId}`;
+  window.localStorage.setItem(CLIENT_ID_KEY, nextClientId);
+  return nextClientId;
+}
+
+function clampParallelJobs(value: number, maxValue: number): number {
+  if (!Number.isInteger(value)) {
+    return 1;
+  }
+
+  return Math.min(Math.max(1, value), Math.max(1, maxValue));
 }
